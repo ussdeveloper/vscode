@@ -339,7 +339,7 @@ if (-not $SkipPortable) {
         # Now safe to wipe the directory in preparation for the new staging.
         Remove-Item $portableLatestDir -Recurse -Force -ErrorAction SilentlyContinue
         if (Test-Path $portableLatestDir) {
-            throw "Could not remove $portableLatestDir — close all thecoder.exe instances and retry."
+            throw "Could not remove $portableLatestDir - close all thecoder.exe instances and retry."
         }
     }
 
@@ -381,7 +381,7 @@ if (-not $SkipPortable) {
     }
 
     $stageSizeMB = [math]::Round(((Get-ChildItem $portableLatestDir -Recurse -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum)/1MB, 1)
-    Write-Host ("  -> portable/  ($stageSizeMB MB unpacked, ready to run)")
+    Write-Host ('  -> portable/  (' + $stageSizeMB + ' MB unpacked, ready to run)')
 
     # Stage the in-tree TheCoder copilot customizations (balance, pricing,
     # BYOK helpers) on top of the gulp-baked extension bundle.
