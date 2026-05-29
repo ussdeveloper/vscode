@@ -122,6 +122,212 @@ C:\Program Files (x86)\Windows Kits\10\bin\10.0.<wersja>\x64\signtool.exe
 
 ---
 
+## Instalacja wymaganego oprogramowania (PowerShell)
+
+Poniższe komendy zakładają **Windows 10/11 x64** i **PowerShell uruchomiony jako Administrator** (winget / modyfikacja Visual Studio).  
+Po instalacji **otwórz nowe okno terminala**, żeby odświeżyć `PATH`.
+
+### 0. Sprawdź, co już jest
+
+```powershell
+function Test-BuildPrerequisite {
+    param([string]$Name, [scriptblock]$Check)
+    $ok = try { & $Check } catch { $false }
+    [pscustomobject]@{ Tool = $Name; OK = [bool]$ok }
+}
+
+@(
+    (Test-BuildPrerequisite 'winget' { !!(Get-Command winget -EA SilentlyContinue) })
+    (Test-BuildPrerequisite 'git'    { !!(Get-Command git -EA SilentlyContinue) })
+    (Test-BuildPrerequisite 'pwsh'    { !!(Get-Command pwsh -EA SilentlyContinue) })
+    (Test-BuildPrerequisite 'node'    { $v = node -v 2>$null; $v -match '^v24\.' })
+    (Test-BuildPrerequisite 'npm<12'  { $m = npm -v 2>$null; if ($m -match '^(\d+)') { [int]$Matches[1] -lt 12 } })
+    (Test-BuildPrerequisite 'nvm'     { !!(Get-Command nvm -EA SilentlyContinue) })
+    (Test-BuildPrerequisite 'signtool' {
+        if (Get-Command signtool.exe -EA SilentlyContinue) { return $true }
+        $kits = 'C:\Program Files (x86)\Windows Kits\10\bin'
+        !!(Get-ChildItem $kits -Directory -EA SilentlyContinue |
+            Where-Object { $_.Name -match '^10\.0\.\d+\.\d+$' } |
+            Where-Object { Test-Path (Join-Path $_.FullName 'x64\signtool.exe') })
+    })
+    (Test-BuildPrerequisite 'vswhere' {
+        Test-Path "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    })
+) | Format-Table -AutoSize
+```
+
+Jeśli `winget` zwraca błąd, doinstaluj **App Installer** ze Sklepu Microsoft lub zaktualizuj:
+
+```powershell
+winget upgrade --id Microsoft.AppInstaller -e --accept-package-agreements --accept-source-agreements
+```
+
+### 1. PowerShell 7 (`pwsh`) — zalecane do skryptów release
+
+```powershell
+winget install --id Microsoft.PowerShell -e --accept-package-agreements --accept-source-agreements
+pwsh -v
+```
+
+Bez `pwsh` można użyć `powershell -NoProfile -File ...`, o ile skrypty w repo są w ASCII (patrz sekcja problemów).
+
+### 2. Git
+
+```powershell
+winget install --id Git.Git -e --accept-package-agreements --accept-source-agreements
+# Nowy terminal:
+git --version
+```
+
+### 3. Node.js — wersja z `.nvmrc` (zalecane: nvm-windows)
+
+Repo wymaga wersji z [`.nvmrc`](.nvmrc) (obecnie **24.15.0**, major **24**). Najwygodniej **nvm-windows**:
+
+```powershell
+# Instalator nvm (jednorazowo)
+winget install --id CoreyButler.NVMforWindows -e --accept-package-agreements --accept-source-agreements
+```
+
+**Zamknij i otwórz terminal**, potem (w katalogu repo lub z znana wersja):
+
+```powershell
+cd C:\work\vscode-local   # twoja sciezka repo
+$nodeVer = (Get-Content .nvmrc).Trim()
+nvm install $nodeVer
+nvm use $nodeVer
+node -v
+npm -v    # musi byc < 12
+```
+
+Jeśli `npm -v` pokazuje **12+**, obniz npm (wymog `preinstall`):
+
+```powershell
+npm install -g npm@10
+npm -v
+```
+
+**Alternatywa bez nvm** — tylko jesli winget ma dokladnie wymagany patch (sprawdz przed uzyciem):
+
+```powershell
+# Przyklad - ID i wersja moga sie roznic; zweryfikuj: winget search OpenJS.NodeJS
+winget install --id OpenJS.NodeJS --version 24.15.0 -e --accept-package-agreements --accept-source-agreements
+```
+
+Po instalacji: `node -v` musi pasowac do `.nvmrc` (ten sam major, patch >= w pliku).
+
+### 4. Visual Studio 2022 + C++ + Windows SDK (najwazniejsze dla `npm install`)
+
+Instalacja **Community** z obciazeniem **Desktop development with C++** (trwa dlugo, 5-15 GB):
+
+```powershell
+$vsArgs = @(
+    '--wait', '--passive', '--norestart'
+    '--add', 'Microsoft.VisualStudio.Workload.NativeDesktop'
+    '--includeRecommended'
+)
+winget install --id Microsoft.VisualStudio.2022.Community -e `
+    --accept-package-agreements --accept-source-agreements `
+    --override ($vsArgs -join ' ')
+```
+
+Jesli VS 2022 Community jest juz zainstalowane, **doinstaluj brakujace komponenty** (PowerShell):
+
+```powershell
+$setup = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+$vsPath = 'C:\Program Files\Microsoft Visual Studio\2022\Community'   # zmien na Build/Professional jesli inna edycja
+
+# Obiazenie C++ desktop + rekomendacje (SDK, MSVC)
+& $setup modify --installPath $vsPath `
+    --add Microsoft.VisualStudio.Workload.NativeDesktop `
+    --includeRecommended `
+    --quiet --norestart --wait
+
+# Spectre-mitigated libs (czesto brakuje -> MSB8040 w node-gyp)
+& $setup modify --installPath $vsPath `
+    --add Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre `
+    --quiet --norestart --wait
+```
+
+**Z repo** (po sklonowaniu) mozesz tez uruchomic gotowy plik — edytuj sciezke VS w srodku, jesli nie masz Community:
+
+```powershell
+cd C:\work\vscode-local
+cmd /c .tmp-install-spectre.cmd
+Get-Content .tmp-install-spectre.log -Tail 20
+```
+
+Weryfikacja VS i kompilatora:
+
+```powershell
+& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+    -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+    -property installationPath,displayName
+```
+
+### 5. Windows SDK / `signtool.exe`
+
+SDK zwykle dochodzi z workload **Native Desktop**. Sprawdz:
+
+```powershell
+Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Directory |
+    Where-Object { $_.Name -match '^10\.0\.\d+\.\d+$' } |
+    ForEach-Object {
+        $st = Join-Path $_.FullName 'x64\signtool.exe'
+        [pscustomobject]@{ SDK = $_.Name; signtool = (Test-Path $st) }
+    } | Format-Table -AutoSize
+```
+
+Jesli brak `signtool`, doinstaluj pakiet SDK (przyklad — dostepna wersja zalezy od winget):
+
+```powershell
+winget search Windows SDK
+# Przyklad (zmien ID/wersje wedlug wyniku search):
+winget install --id Microsoft.WindowsSDK.10.0.22621 -e --accept-package-agreements --accept-source-agreements
+```
+
+`build-release.ps1` i tak probuje dopiac najnowszy SDK do `PATH` na starcie buildu.
+
+### 6. Python 3 (opcjonalnie — tylko gdy `node-gyp` o to prosi)
+
+```powershell
+winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements
+python --version
+```
+
+### 7. Inno Setup (tylko przy buildzie instalatorow, nie przy `-PortableOnly`)
+
+```powershell
+winget install --id JRSoftware.InnoSetup -e --accept-package-agreements --accept-source-agreements
+```
+
+Przy samym portable gulp czesto wystarczy pakiet `innosetup` z `npm install` w repo.
+
+### 8. Jedna sesja — kolejnosc dla agenta (skrot)
+
+```powershell
+# Uruchom jako Administrator, potem:
+winget install Microsoft.AppInstaller -e --accept-package-agreements --accept-source-agreements 2>$null
+winget install Microsoft.PowerShell Git.Git CoreyButler.NVMforWindows -e --accept-package-agreements --accept-source-agreements
+
+# VS 2022 (dlugo!) — osobno, patrz sekcja 4
+# Po VS: nowy terminal, nvm + node z .nvmrc, clone repo, npm install, build-release.ps1
+```
+
+### 9. Po instalacji — szybka walidacja przed `npm install`
+
+```powershell
+node -v          # v24.x.x zgodne z .nvmrc
+npm -v           # < 12
+git --version
+pwsh -v          # opcjonalnie ale zalecane
+Test-Path "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+# signtool — patrz sekcja 5
+```
+
+Dopiero gdy powyzsze jest OK → przejdz do sekcji **Przygotowanie repozytorium**.
+
+---
+
 ## Przygotowanie repozytorium (nowa maszyna)
 
 ### 1. Klon i branch
