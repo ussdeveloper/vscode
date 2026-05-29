@@ -10,6 +10,8 @@ import { PANEL_BORDER } from '../../../common/theme.js';
 
 // General setting colors
 export const settingsHeaderForeground = registerColor('settings.headerForeground', { light: '#444444', dark: '#e7e7e7', hcDark: '#ffffff', hcLight: '#292929' }, localize('headerForeground', "The foreground color for a section header or active title."));
+/** TheCoder fork: golden accent for the dedicated TheCoder settings section. */
+export const thecoderSettingsSectionForeground = registerColor('settings.thecoderSectionForeground', { light: '#B8860B', dark: '#FFD700', hcDark: '#FFD700', hcLight: '#B8860B' }, localize('thecoderSectionForeground', "The foreground color for TheCoder settings section headers."));
 export const settingsHeaderHoverForeground = registerColor('settings.settingsHeaderHoverForeground', transparent(settingsHeaderForeground, 0.7), localize('settingsHeaderHoverForeground', "The foreground color for a section header or hovered title."));
 export const modifiedItemIndicator = registerColor('settings.modifiedItemIndicator', {
 	light: new Color(new RGBA(102, 175, 224)),

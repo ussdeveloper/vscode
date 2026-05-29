@@ -16,7 +16,8 @@ import { TelemetryData } from '../../../platform/telemetry/common/telemetryData'
 import { Disposable } from '../../../util/vs/base/common/lifecycle';
 import { autorun } from '../../../util/vs/base/common/observableInternal';
 import { GHPR_EXTENSION_ID } from '../../chatSessions/vscode/chatSessionsUriHandler';
-import { isClientBYOKAllowed } from '../../byok/common/byokProvider';
+// `isClientBYOKAllowed` is intentionally NOT imported any more: the TheCoder
+// fork forces `clientByokEnabled` on unconditionally in `_updateClientByokEnabledContext`.
 import { EXTENSION_ID } from '../../common/constants';
 
 const welcomeViewContextKeys = {
@@ -223,13 +224,18 @@ export class ContextKeysContribution extends Disposable {
 	}
 
 	private async _updateClientByokEnabledContext() {
-		const hasGitHubSession = !!this._authenticationService.anyGitHubSession;
-		try {
-			const copilotToken = await this._authenticationService.getCopilotToken();
-			commands.executeCommand('setContext', clientByokEnabledContextKey, isClientBYOKAllowed(hasGitHubSession, copilotToken));
-		} catch (e) {
-			commands.executeCommand('setContext', clientByokEnabledContextKey, isClientBYOKAllowed(hasGitHubSession, undefined));
-		}
+		// TheCoder fork: this context key gates the "Manage Models..." gear
+		// button in the chat model picker (see chatManagement.contribution.ts
+		// LANGUAGE_MODELS_ENTITLEMENT_PRECONDITION). In upstream Copilot it is
+		// only true when (a) the user is fully signed out of GitHub, or (b)
+		// the user holds a Copilot subscription. That leaves a long async gap
+		// at startup during which the gear icon is missing -- and the third
+		// state, "signed in to GitHub without Copilot", locks it out entirely.
+		//
+		// We don't ship a Copilot policy story; the whole point of this fork
+		// is BYOK without GitHub login. Force the context key on immediately
+		// and unconditionally so the management UI is always reachable.
+		commands.executeCommand('setContext', clientByokEnabledContextKey, true);
 	}
 
 	private _updateShowLogViewContext() {

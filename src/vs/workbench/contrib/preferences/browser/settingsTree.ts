@@ -1152,11 +1152,25 @@ class SettingGroupRenderer implements ITreeRenderer<SettingsTreeGroupElement, ne
 		if (element.element.isFirstGroup) {
 			labelElement.classList.add('settings-group-first');
 		}
+
+		// TheCoder fork: highlight the dedicated TheCoder settings section.
+		if (isTheCoderSettingsGroup(element.element)) {
+			labelElement.classList.add('thecoder-settings-section');
+		}
 	}
 
 	disposeTemplate(templateData: IGroupTitleTemplate): void {
 		templateData.toDispose.dispose();
 	}
+}
+
+function isTheCoderSettingsGroup(group: SettingsTreeGroupElement): boolean {
+	const id = group.id.toLowerCase();
+	const label = group.label.toLowerCase();
+	return id === 'thecoder'
+		|| id.endsWith('/thecoder')
+		|| id.endsWith('_thecoder')
+		|| label === 'thecoder';
 }
 
 export class SettingNewExtensionsRenderer implements ITreeRenderer<SettingsTreeNewExtensionsElement, never, ISettingNewExtensionsTemplate> {

@@ -1,0 +1,42 @@
+---
+description: CRITICAL - Fork/upstream safety - never push to microsoft/vscode
+alwaysApply: true
+---
+
+# CRITICAL RULE - Fork / Upstream Safety
+
+This repository is a **fork** of `microsoft/vscode`. The user is `ussdeveloper`.
+
+## ABSOLUTE PROHIBITIONS (NEVER do these)
+
+1. **NEVER push** anything to `upstream` / `microsoft/vscode`. Not commits, not branches, not tags, not force-pushes — nothing.
+2. **NEVER open a Pull Request** against `microsoft/vscode` without explicit, unambiguous user confirmation given in the current conversation.
+3. **NEVER reconfigure** the `upstream` remote to enable push. It is intentionally set to `DISABLE_PUSH_TO_UPSTREAM` as a guardrail.
+4. **NEVER commit directly inside `microsoft/vscode`** even if somehow checked out — all work happens in the fork (`origin` = `ussdeveloper/vscode`).
+5. **NEVER use `gh pr create`** with `--repo microsoft/vscode` or with a base that targets `microsoft/vscode`.
+
+## ALLOWED operations
+
+- `git fetch upstream` — pulling commits from `microsoft/vscode` into local refs is fine.
+- `gh repo sync ussdeveloper/vscode -b <branch>` — syncing **our fork** from upstream (one-way: upstream → fork).
+- `git pull origin <branch> --ff-only` — updating local working copy from our fork.
+- `git push origin <branch>` — pushing only to our fork.
+- Creating PRs **inside our fork** (`ussdeveloper/vscode` → `ussdeveloper/vscode`) for internal review.
+
+## Remote layout (must stay this way)
+
+```
+origin    https://github.com/ussdeveloper/vscode.git   (fetch + push)   ← OUR fork
+upstream  https://github.com/microsoft/vscode.git      (fetch only)     ← SOURCE
+upstream  DISABLE_PUSH_TO_UPSTREAM                     (push blocked)   ← GUARDRAIL
+```
+
+If `git remote -v` ever shows a working push URL on `upstream`, **stop and restore** the guardrail:
+
+```bash
+git remote set-url --push upstream DISABLE_PUSH_TO_UPSTREAM
+```
+
+## If unsure — STOP and ASK
+
+Any operation that could touch `microsoft/vscode` (push, PR, force-push, remote reconfiguration) requires explicit user confirmation **in the current turn**. Past confirmation does not carry over. When in doubt: do nothing and ask.

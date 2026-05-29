@@ -31,6 +31,12 @@ suite('JSON - edits', () => {
 		eol: '\n'
 	};
 
+	test('set property on array root coerces to object', () => {
+		const content = '[]';
+		const edits = setProperty(content, ['chat.utilityModel'], 'deepseek/deepseek-v4-flash', formatterOptions);
+		assertEdit(content, edits, '{\n  "chat.utilityModel": "deepseek/deepseek-v4-flash"\n}');
+	});
+
 	test('set property', () => {
 		let content = '{\n  "x": "y"\n}';
 		let edits = setProperty(content, ['x'], 'bar', formatterOptions);

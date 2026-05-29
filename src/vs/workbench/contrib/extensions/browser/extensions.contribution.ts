@@ -297,7 +297,12 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration)
 			[VerifyExtensionSignatureConfigKey]: {
 				type: 'boolean',
 				description: localize('extensions.verifySignature', "When enabled, extensions are verified to be signed before getting installed."),
-				default: true,
+				// TheCoder: Open VSX (and most non-MS galleries) do not sign
+				// extensions with Microsoft's keys, so the default behaviour
+				// pops a "Cannot verify signature" modal on every install.
+				// Disable verification by default; users can flip it back on
+				// via settings if they ship their own signed gallery.
+				default: false,
 				scope: ConfigurationScope.APPLICATION,
 				included: isNative
 			},

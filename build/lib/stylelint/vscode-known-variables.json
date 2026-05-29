@@ -695,6 +695,7 @@
 		"--vscode-settings-rowHoverBackground",
 		"--vscode-settings-sashBorder",
 		"--vscode-settings-settingsHeaderHoverForeground",
+		"--vscode-settings-thecoderSectionForeground",
 		"--vscode-settings-textInputBackground",
 		"--vscode-settings-textInputBorder",
 		"--vscode-settings-textInputForeground",

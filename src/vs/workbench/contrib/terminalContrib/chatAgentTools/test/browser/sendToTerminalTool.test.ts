@@ -200,6 +200,25 @@ suite('SendToTerminalTool', () => {
 		assert.ok(prepared.confirmationMessages.message);
 	});
 
+	test('prepareToolInvocation redacts password sends in chat', async () => {
+		RunInTerminalTool.getExecution = (id) => id === KNOWN_TERMINAL_ID
+			? createMockExecution('[sudo] password for jdoe: ')
+			: undefined;
+
+		const prepared = await tool.prepareToolInvocation(
+			createPreparationContext(KNOWN_TERMINAL_ID, 'hunter2'),
+			CancellationToken.None,
+		);
+
+		assert.ok(prepared);
+		const invocation = prepared.invocationMessage as IMarkdownString;
+		const pastTense = prepared.pastTenseMessage as IMarkdownString;
+		assert.ok(invocation.value.includes('password'), invocation.value);
+		assert.ok(!invocation.value.includes('hunter2'), 'password must not appear in chat');
+		assert.ok(pastTense.value.includes('Password sent to terminal'));
+		assert.strictEqual(prepared.confirmationMessages, undefined, 'password prompt send should skip confirmation');
+	});
+
 	test('prepareToolInvocation truncates long commands', async () => {
 		const longCommand = 'a'.repeat(100);
 		const prepared = await tool.prepareToolInvocation(

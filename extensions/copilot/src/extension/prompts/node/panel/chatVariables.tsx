@@ -163,7 +163,7 @@ export class ChatVariablesAndQuery extends PromptElement<ChatVariablesAndQueryPr
 
 	override async render(state: void, sizing: PromptSizing): Promise<PromptPiece<any, any> | undefined> {
 		const chatVariables = this.props.maintainOrder ? this.props.chatVariables : this.props.chatVariables.reverse();
-		const elements = await renderChatVariables(chatVariables, this.fileSystemService, this.props.includeFilepath, true, this.props.omitReferences, undefined, undefined, this.props.omitFileContents);
+		const elements = await renderChatVariables(chatVariables, this.fileSystemService, this.props.includeFilepath, true, this.props.omitReferences, undefined, undefined, this.props.omitFileContents, this.props.query);
 
 		if (this.props.embeddedInsideUserMessage ?? embeddedInsideUserMessageDefault) {
 			if (!elements.length) {
@@ -195,7 +195,7 @@ function asUserMessage(element: PromptElement, priority: number | undefined): Us
 }
 
 
-export async function renderChatVariables(chatVariables: ChatVariablesCollection, fileSystemService: IFileSystemService, includeFilepathInCodeBlocks = true, alwaysIncludeSummary = true, omitReferences?: boolean, isAgent?: boolean, useFixCookbook?: boolean, omitFileContents?: boolean): Promise<PromptElement[]> {
+export async function renderChatVariables(chatVariables: ChatVariablesCollection, fileSystemService: IFileSystemService, includeFilepathInCodeBlocks = true, alwaysIncludeSummary = true, omitReferences?: boolean, isAgent?: boolean, useFixCookbook?: boolean, omitFileContents?: boolean, userTaskContext?: string): Promise<PromptElement[]> {
 	const elements = [];
 	const filePathMode = (isAgent && includeFilepathInCodeBlocks)
 		? FilePathMode.AsAttribute
@@ -257,7 +257,7 @@ export async function renderChatVariables(chatVariables: ChatVariablesCollection
 				</Tag>
 			);
 		} else if (variableValue instanceof ChatReferenceBinaryData) {
-			elements.push(<Image variableName={variableName} variableValue={await variableValue.data()} reference={variableValue.reference} omitReferences={omitReferences}></Image>);
+			elements.push(<Image variableName={variableName} variableValue={await variableValue.data()} reference={variableValue.reference} omitReferences={omitReferences} userTaskContext={userTaskContext}></Image>);
 		} else if (typeof ChatReferenceDiagnostic !== 'undefined' && variableValue instanceof ChatReferenceDiagnostic) { // check undefined to avoid breaking old Insiders versions
 			elements.push(<DiagnosticVariable diagnostics={variableValue.diagnostics} useCookbook={useFixCookbook ?? false} />);
 		}

@@ -146,7 +146,9 @@ export interface IResponseDelta {
 	copilotConfirmation?: ICopilotConfirmation;
 	thinking?: ThinkingDelta | EncryptedThinkingDelta;
 	phase?: string;
-	retryReason?: FilterReason | 'network_error' | 'server_error';
+	retryReason?: FilterReason | 'network_error' | 'server_error' | 'length_limit' | 'image_ignored_by_api' | 'image_described_via_proxy';
+	/** TheCoder: vision model used when retryReason is image_described_via_proxy. */
+	imageDescriptionModel?: string;
 	/** Marker for the current response, which should be presented in `IMakeChatRequestOptions` on the next call */
 	statefulMarker?: string;
 	/** Context management information from Anthropic Messages API */

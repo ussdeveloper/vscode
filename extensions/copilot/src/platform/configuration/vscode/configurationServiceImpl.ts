@@ -295,8 +295,17 @@ export class ConfigurationServiceImpl extends AbstractConfigurationService {
 			const propertyGroups = config.map((c) => c.properties);
 			const extensionConfigProps = Object.assign({}, ...propertyGroups);
 			for (const key in extensionConfigProps) {
-				const localKey = key.replace(`${CopilotConfigPrefix}.`, '');
-				const value = localKey.split('.').reduce((o, i) => o[i], this.config);
+				// Only dump settings that live under the Copilot config prefix.
+				// Other top-level namespaces (e.g. TheCoder's `thecoder.pricing.*`)
+				// own their own configuration section and are read through
+				// `vscode.workspace.getConfiguration` directly; reducing into
+				// `this.config` (which is rooted at `github.copilot`) for those
+				// keys would dereference `undefined` and crash this dump.
+				if (!key.startsWith(`${CopilotConfigPrefix}.`)) {
+					continue;
+				}
+				const localKey = key.slice(CopilotConfigPrefix.length + 1);
+				const value = localKey.split('.').reduce<any>((o, i) => (o == null ? o : o[i]), this.config);
 
 				if (typeof value === 'object' && value !== null) {
 					// Dump objects as their properties, filtering secret_key

@@ -1308,11 +1308,21 @@ export class ChatEntitlementContext extends Disposable {
 		this.untrustedContext = ChatEntitlementContextKeys.Setup.untrusted.bindTo(contextKeyService);
 		this.registeredContext = ChatEntitlementContextKeys.Setup.registered.bindTo(contextKeyService);
 
+		// TheCoder fork: in upstream the first run leaves `completed=false` so
+		// the welcome flow can prompt "Sign in to use AI features" and walk
+		// the user through GitHub Copilot setup. We don't want that nag --
+		// this fork is BYOK-first, the user picks DeepSeek/OpenAI/Anthropic/
+		// etc. themselves. Mark the setup as already completed + installed +
+		// registered so the Chat panel renders directly, the gear "Manage
+		// Models..." is reachable, and no "Sign in" CTA fires anywhere.
 		this._state = this.storageService.getObject<IChatEntitlementContextState>(ChatEntitlementContext.CHAT_ENTITLEMENT_CONTEXT_STORAGE_KEY, StorageScope.PROFILE) ?? {
 			entitlement: ChatEntitlement.Unknown,
 			organisations: undefined,
 			sku: undefined,
-			copilotTrackingId: undefined
+			copilotTrackingId: undefined,
+			completed: true,
+			installed: true,
+			registered: true
 		};
 
 		const migrated = this.storageService.getBoolean(ChatEntitlementContext.CHAT_ENTITLEMENT_CONTEXT_MIGRATED_STORAGE_KEY, StorageScope.PROFILE) === true;

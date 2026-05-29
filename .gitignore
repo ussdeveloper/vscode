@@ -47,3 +47,11 @@ dist
 .github/prompts/*.local.prompt.md
 .agents/skills/.local/
 .github/skills/.local/
+/releases/install/*/
+/releases/portable/*/
+/releases/portable/*.zip
+/releases/portable/*.7z
+/releases/portable/checksums.txt
+.build-portable-log.txt
+.thecoder/
+/releases/staging/

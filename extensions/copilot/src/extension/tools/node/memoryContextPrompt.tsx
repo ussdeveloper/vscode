@@ -217,6 +217,26 @@ export class MemoryInstructionsPrompt extends PromptElement<BasePromptElementPro
 				- Use session memory to keep plans up to date and reviewing historical summaries.<br />
 				- Do not create unnecessary session memory files. You should only view and update existing session files.<br />
 			</Tag>
+			<br />
+			<Tag name='memoryTank'>
+				**TheCoder memory-tank** (`memoryTank` / `thecoder_memory_tank`) — structured per-workspace memory at `.thecoder/memory-tank/memory.json`.<br />
+				<br />
+				**Auto-collected on workspace open** (search these first): `projectContext`, `projectStructure`, `techStack`, `gitTimeline`, `milestonesIndex`, `agentInstructions`.<br />
+				<br />
+				When to **save** (action="save") — YOU must write rich, specific entries:<br />
+				- **milestone** — shipped features, release phases, completed epics ("portable build works", "balance UI done").<br />
+				- **decision** — architecture choices, library picks, rejected alternatives.<br />
+				- **architecture** — module layout, data flow, file roles, API contracts.<br />
+				- **fact** — stable project truths (paths, env vars, naming rules).<br />
+				- **todo** — open work, blockers, next steps.<br />
+				- BEFORE summarisation — flush milestones + decisions so compaction does not erase them.<br />
+				<br />
+				When to **search** (action="search"):<br />
+				- START of every multi-step task — query project name, feature, file, or "milestone".<br />
+				- When user says "continue", "what did we decide", "project details".<br />
+				<br />
+				Do NOT save vague one-liners. Each entry needs: clear title, bullet facts, file paths, dates, and `category` + `tags`. Link related entries with `link`.<br />
+			</Tag>
 		</Tag>;
 	}
 }

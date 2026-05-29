@@ -1,0 +1,19 @@
+---
+description: Keep TheCoder extra docs current and compact
+alwaysApply: true
+---
+
+# TheCoder Extra Docs Maintenance
+
+Before doing deeper repo exploration for TheCoder-specific work, check `.cursor/extra-docs/README.md` and the most relevant topic note.
+
+When a change affects behavior, settings, retry logic, image handling, model selection, or other TheCoder UX, update the matching doc in `.cursor/extra-docs/` in the same change.
+
+Keep those notes short and high-signal:
+
+- explain the current behavior
+- list the important file paths
+- record the reason for the approach
+- avoid long repo-wide re-explanations
+
+If the implementation changes, update the docs first or alongside the code so future work can reuse the summary instead of re-reading the entire repo.

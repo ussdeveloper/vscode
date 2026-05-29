@@ -14,6 +14,9 @@ import { CancellationToken } from '../../../util/vs/base/common/cancellation';
 import { URI } from '../../../util/vs/base/common/uri';
 import { ChatResponseClearToPreviousToolInvocationReason } from '../../../vscodeTypes';
 import { getContributedToolName } from '../../tools/common/toolNames';
+import { buildImageDescribedViaProxyNotice } from '../../byok/vscode-node/imageDescriptionService';
+import { buildImageIgnoredByApiNotice } from '../common/imageApiRetry';
+import { buildLengthLimitRetryingNotice } from '../common/lengthLimitRetry';
 import { IResponseProcessor, IResponseProcessorContext } from './intents';
 
 disableErrorLogging();
@@ -210,7 +213,16 @@ export class PseudoStopStartResponseProcessor implements IResponseProcessor {
 			this.nonReportedDeltas = [];
 			this.thinkingActive = false;
 			this._clearPendingToolStreamUpdates();
-			if (delta.retryReason === 'network_error' || delta.retryReason === 'server_error') {
+			if (delta.retryReason === 'length_limit') {
+				progress.warning(buildLengthLimitRetryingNotice());
+				progress.clearToPreviousToolInvocation(ChatResponseClearToPreviousToolInvocationReason.NoReason);
+			} else if (delta.retryReason === 'image_described_via_proxy') {
+				progress.warning(buildImageDescribedViaProxyNotice(delta.imageDescriptionModel ?? 'vision model'));
+				progress.clearToPreviousToolInvocation(ChatResponseClearToPreviousToolInvocationReason.NoReason);
+			} else if (delta.retryReason === 'image_ignored_by_api') {
+				progress.warning(buildImageIgnoredByApiNotice());
+				progress.clearToPreviousToolInvocation(ChatResponseClearToPreviousToolInvocationReason.NoReason);
+			} else if (delta.retryReason === 'network_error' || delta.retryReason === 'server_error') {
 				progress.clearToPreviousToolInvocation(ChatResponseClearToPreviousToolInvocationReason.NoReason);
 			} else if (delta.retryReason === FilterReason.Copyright) {
 				progress.clearToPreviousToolInvocation(ChatResponseClearToPreviousToolInvocationReason.CopyrightContentRetry);

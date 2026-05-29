@@ -267,8 +267,55 @@ class MigrateLanguageModelsGroupAction extends Action2 {
 	}
 }
 
+/** TheCoder: jump straight to the API-key prompt instead of the models editor. */
+class ConfigureProviderApiKeyAction extends Action2 {
+	constructor() {
+		super({
+			id: 'thecoder.configureProviderApiKey',
+			title: localize2('thecoder.configureProviderApiKey', 'Configure Provider API Key...'),
+			category: CHAT_CATEGORY,
+			f1: true,
+		});
+	}
+
+	async run(accessor: ServicesAccessor, vendorIdArg?: string): Promise<void> {
+		const languageModelsService = accessor.get(ILanguageModelsService);
+		const quickInputService = accessor.get(IQuickInputService);
+		const vendorId = typeof vendorIdArg === 'string' && vendorIdArg ? vendorIdArg : 'deepseek';
+
+		const vendor = languageModelsService.getVendors().find(({ vendor }) => vendor === vendorId);
+		if (!vendor) {
+			throw new Error(`Vendor ${vendorId} not found.`);
+		}
+
+		const groups = languageModelsService.getLanguageModelGroups(vendorId);
+		if (groups.length === 0) {
+			await languageModelsService.configureLanguageModelsProviderGroup(vendorId);
+			return;
+		}
+
+		let groupName = groups[0].name;
+		if (groups.length > 1) {
+			const pick = await quickInputService.pick(
+				groups.map(g => ({ label: g.name, groupName: g.name })),
+				{
+					title: localize('thecoder.pickProviderGroup', 'Select {0} group to update', vendor.displayName),
+					placeHolder: localize('thecoder.pickProviderGroupPlaceholder', 'Choose a provider group'),
+				},
+			);
+			if (!pick) {
+				return;
+			}
+			groupName = pick.groupName;
+		}
+
+		await languageModelsService.updateLanguageModelsProviderGroupApiKey(vendorId, groupName);
+	}
+}
+
 export function registerLanguageModelActions() {
 	registerAction2(ManageLanguageModelAuthenticationAction);
 	registerAction2(ConfigureLanguageModelsGroupAction);
 	registerAction2(MigrateLanguageModelsGroupAction);
+	registerAction2(ConfigureProviderApiKeyAction);
 }

@@ -47,9 +47,10 @@ async function openInIntegratedBrowser(url?: string): Promise<void> {
 	await vscode.commands.executeCommand(integratedBrowserCommand, url);
 }
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
 
 	const manager = new SimpleBrowserManager(context.extensionUri);
+	const integratedBrowserAvailable = await shouldUseIntegratedBrowser();
 	context.subscriptions.push(manager);
 
 	context.subscriptions.push(vscode.window.registerWebviewPanelSerializer(SimpleBrowserView.viewType, {
@@ -88,6 +89,15 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(vscode.window.registerExternalUriOpener(openerId, {
 		canOpenExternalUri(uri: vscode.Uri) {
+			if (uri.scheme !== 'http' && uri.scheme !== 'https') {
+				return vscode.ExternalUriOpenerPriority.None;
+			}
+
+			// Prefer the workbench Integrated Browser when available (TheCoder and recent VS Code).
+			if (integratedBrowserAvailable) {
+				return vscode.ExternalUriOpenerPriority.Default;
+			}
+
 			// We have to replace the IPv6 hosts with IPv4 because URL can't handle IPv6.
 			const originalUri = new URL(uri.toString(true));
 			if (enabledHosts.has(originalUri.hostname)) {

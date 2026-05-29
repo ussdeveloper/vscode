@@ -12,7 +12,8 @@ import { IExperimentationService } from '../../../platform/telemetry/common/null
 import { IStringDictionary } from '../../../util/vs/base/common/collections';
 import { IInstantiationService } from '../../../util/vs/platform/instantiation/common/instantiation';
 import { CopilotLanguageModelWrapper } from '../../conversation/vscode-node/languageModelAccess';
-import { BYOKAuthType, BYOKKnownModels, BYOKModelCapabilities, resolveModelInfo } from '../common/byokProvider';
+import { BYOKKnownModels, BYOKModelCapabilities, resolveModelInfo } from '../common/byokProvider';
+import { setCachedByokApiKey } from './byokApiKeyCache';
 import { OpenAIEndpoint } from '../node/openAIEndpoint';
 import { byokKnownModelsToAPIInfoWithEffort } from './byokModelInfo';
 import { IBYOKStorageService } from './byokStorageService';
@@ -48,8 +49,15 @@ export abstract class AbstractLanguageModelChatProvider<C extends LanguageModelC
 	protected async configureDefaultGroupWithApiKeyOnly(): Promise<string | undefined> {
 		const apiKey = await this._byokStorageService.getAPIKey(this._name);
 		if (apiKey) {
-			this.configureDefaultGroupIfExists(this._name, { apiKey } as C);
-			await this._byokStorageService.deleteAPIKey(this._name, BYOKAuthType.GlobalApiKey);
+			// Migrate legacy extension-secret keys into the Manage Models group
+			// once. TheCoder keeps the extension secret so balance and other
+			// readers can still find the key; VS Code stores its own copy in
+			// `chat.lm.secret.*` for the chat pipeline.
+			try {
+				await this.configureDefaultGroupIfExists(this._name, { apiKey } as C);
+			} catch {
+				// Group already exists after a prior migration — expected.
+			}
 		}
 		return apiKey;
 	}
@@ -63,6 +71,8 @@ export abstract class AbstractLanguageModelChatProvider<C extends LanguageModelC
 		if (!apiKey) {
 			apiKey = await this.configureDefaultGroupWithApiKeyOnly();
 		}
+		// Mirror the resolved key for other BYOK readers (see byokApiKeyCache.ts).
+		setCachedByokApiKey(this._id, apiKey);
 
 		const models = await this.getAllModels(silent, apiKey, configuration as C);
 		return models.map(model => ({
@@ -147,16 +157,18 @@ export abstract class AbstractOpenAICompatibleLMProvider<T extends LanguageModel
 			}
 
 			for (const model of models) {
+				const fromApi = this.resolveModelCapabilities(model);
 				let modelCapabilities = this._knownModels?.[model.id];
-				if (!modelCapabilities) {
-					modelCapabilities = this.resolveModelCapabilities(model);
-					if (!modelCapabilities) {
-						continue;
-					}
+				if (fromApi) {
+					modelCapabilities = modelCapabilities
+						? { ...modelCapabilities, ...fromApi, pricing: fromApi.pricing ?? modelCapabilities.pricing }
+						: fromApi;
 					if (!this._knownModels) {
 						this._knownModels = {};
 					}
 					this._knownModels[model.id] = modelCapabilities;
+				} else if (!modelCapabilities) {
+					continue;
 				}
 				modelList[model.id] = modelCapabilities;
 			}

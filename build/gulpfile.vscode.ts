@@ -558,8 +558,23 @@ function patchWin32DependenciesTask(destinationFolderName: string) {
 
 	return async () => {
 		const versionedResourcesFolder = util.getVersionedResourcesFolder('win32', commit!);
+		// TheCoder fork: also exclude prebuilt native binaries for non-Windows
+		// platforms (e.g. `@anthropic-ai/claude-agent-sdk` ships `audio-capture`
+		// for `x64-linux`/`arm64-linux`/`darwin*`). rcedit only understands
+		// Windows PE files; pointing it at an ELF/Mach-O .node fails the whole
+		// build at the very last step of packaging. Filter them out using
+		// glob's `ignore` option so we never try to patch them.
+		const nonWindowsNativeIgnores = [
+			'**/*linux*/**/*.node',
+			'**/*darwin*/**/*.node',
+			'**/*macos*/**/*.node',
+			'**/*android*/**/*.node',
+		];
 		const deps = (await Promise.all([
-			glob('**/*.node', { cwd, ignore: 'extensions/node_modules/@parcel/watcher/**' }),
+			glob('**/*.node', {
+				cwd,
+				ignore: ['extensions/node_modules/@parcel/watcher/**', ...nonWindowsNativeIgnores],
+			}),
 			glob('**/rg.exe', { cwd }),
 			glob('**/*explorer_command*.dll', { cwd }),
 		])).flatMap(o => o);

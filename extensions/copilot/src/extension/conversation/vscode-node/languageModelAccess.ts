@@ -38,6 +38,8 @@ import { isBoolean, isDefined, isNumber, isString, isStringArray } from '../../.
 import { IInstantiationService } from '../../../util/vs/platform/instantiation/common/instantiation';
 import { ChatLocation as ApiChatLocation, ExtensionMode } from '../../../vscodeTypes';
 import type { LMResponsePart } from '../../byok/common/byokProvider';
+import { getSessionCostTracker } from '../../byok/vscode-node/sessionCostTracker';
+import { getMemoryTankAutoRecorder } from '../../memoryTank/vscode-node/memoryTankAutoRecorder';
 import { IExtensionContribution } from '../../common/contributions';
 import { PromptRenderer } from '../../prompts/node/base/promptRenderer';
 import { isImageDataPart } from '../common/languageModelChatMessageHelpers';
@@ -294,6 +296,15 @@ export class LanguageModelAccess extends Disposable implements IExtensionContrib
 	}
 
 	private async _provideLanguageModelChatInfo(options: { silent: boolean }, token: vscode.CancellationToken): Promise<vscode.LanguageModelChatInformation[]> {
+		// TheCoder: optional escape hatch for users who only run BYOK providers
+		// and don't want the Copilot-hosted model list cluttering the picker.
+		// We short-circuit BEFORE acquiring a token so the user is not nagged
+		// to sign in just because the provider is registered.
+		if (vscode.workspace.getConfiguration('thecoder').get<boolean>('hideCopilotModels', false)) {
+			this._currentModels = [];
+			return [];
+		}
+
 		const session = await this._getToken();
 		if (!session) {
 			// Return cached models until we have auth reacquired
@@ -751,6 +762,7 @@ export class CopilotLanguageModelWrapper extends Disposable {
 			requestOptions: options,
 			userInitiatedRequest: !!extensionId,
 			telemetryProperties,
+			enableRetryOnLength: true,
 			modelCapabilities: {
 				reasoningEffort: typeof _options.modelConfiguration?.reasoningEffort === 'string' ? _options.modelConfiguration.reasoningEffort : undefined,
 			},
@@ -811,6 +823,12 @@ export class CopilotLanguageModelWrapper extends Disposable {
 
 	async provideLanguageModelResponse(endpoint: IChatEndpoint, messages: Array<vscode.LanguageModelChatMessage | vscode.LanguageModelChatMessage2>, options: vscode.ProvideLanguageModelChatResponseOptions, extensionId: string | undefined, progress: vscode.Progress<LMResponsePart>, token: vscode.CancellationToken): Promise<void> {
 		let thinkingActive = false;
+		// TheCoder: collect a (lightly trimmed) running assistant text so
+		// MemoryTankAutoRecorder can snapshot the conversation post-flight.
+		// We bound the buffer so a long stream can't balloon RSS.
+		const assistantTextParts: string[] = [];
+		let assistantTextLen = 0;
+		const ASSISTANT_BUFFER_CAP = 16_000;
 		const finishCallback: FinishedCallback = async (_text, index, delta): Promise<undefined> => {
 			if (delta.thinking) {
 				// Show thinking progress for unencrypted thinking deltas
@@ -825,6 +843,12 @@ export class CopilotLanguageModelWrapper extends Disposable {
 			}
 			if (delta.text) {
 				progress.report(new vscode.LanguageModelTextPart(delta.text));
+				if (assistantTextLen < ASSISTANT_BUFFER_CAP) {
+					const room = ASSISTANT_BUFFER_CAP - assistantTextLen;
+					const piece = delta.text.length > room ? delta.text.slice(0, room) : delta.text;
+					assistantTextParts.push(piece);
+					assistantTextLen += piece.length;
+				}
 			}
 			if (delta.copilotToolCalls) {
 				for (const call of delta.copilotToolCalls) {
@@ -850,6 +874,38 @@ export class CopilotLanguageModelWrapper extends Disposable {
 		const usage = await this._provideLanguageModelResponse(endpoint, messages, options, extensionId, finishCallback, token);
 		if (usage) {
 			progress.report(new vscode.LanguageModelDataPart(new TextEncoder().encode(JSON.stringify(usage)), CustomDataPartMimeTypes.Usage));
+			// TheCoder: feed the running session cost counter. The tracker is
+			// a process-wide singleton owned by `BYOKContrib`; if it has not
+			// been registered yet (e.g. activation race) we just drop the
+			// sample on the floor.
+			try {
+				const tracker = getSessionCostTracker();
+				tracker?.recordUsage(endpoint.model, usage, endpoint.modelProvider);
+			} catch {
+				// Defensive: never let session-cost accounting break a chat reply.
+			}
+
+			// TheCoder memory-tank: buffer this turn for an idle-flush
+			// snapshot so the user has an automatic conversation log even
+			// when the model never explicitly calls the memory_tank tool.
+			try {
+				const recorder = getMemoryTankAutoRecorder();
+				if (recorder) {
+					const userText = messages.length
+						? getTextPart(messages[messages.length - 1].content)
+						: undefined;
+					const u = usage as { prompt_tokens?: number; completion_tokens?: number };
+					recorder.noteTurn({
+						modelId: endpoint.model,
+						userText,
+						assistantText: assistantTextParts.join(''),
+						tokensIn: typeof u.prompt_tokens === 'number' ? u.prompt_tokens : undefined,
+						tokensOut: typeof u.completion_tokens === 'number' ? u.completion_tokens : undefined,
+					});
+				}
+			} catch {
+				// Defensive: never let memory-tank bookkeeping break a chat reply.
+			}
 		}
 	}
 

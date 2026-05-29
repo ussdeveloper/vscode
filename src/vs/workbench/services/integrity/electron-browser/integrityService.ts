@@ -80,6 +80,10 @@ export class IntegrityService implements IIntegrityService {
 	}
 
 	private async _compute(): Promise<void> {
+		if (this.productService.skipIntegrityCheck) {
+			return;
+		}
+
 		const { isPure } = await this.isPure();
 		if (isPure) {
 			return; // all is good

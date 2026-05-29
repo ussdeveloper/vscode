@@ -193,6 +193,8 @@ export interface IProductConfiguration {
 
 	readonly checksums?: { [path: string]: string };
 	readonly checksumFailMoreInfoUrl?: string;
+	/** TheCoder fork: skip install integrity checksum verification (local/custom builds). */
+	readonly skipIntegrityCheck?: boolean;
 
 	readonly appCenter?: IAppCenterConfiguration;
 

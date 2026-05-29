@@ -195,6 +195,10 @@ export interface IMakeChatRequestOptions {
 	isConversationRequest?: boolean;
 	/** (CAPI-only) Optional telemetry properties for analytics */
 	telemetryProperties?: IChatRequestTelemetryProperties;
+	/** Enable retrying once when the model hits the output length limit (finish_reason=length). */
+	enableRetryOnLength?: boolean;
+	/** Retry once without image parts when the provider rejects a vision/image payload. */
+	enableRetryOnImageReject?: boolean;
 	/** Enable retrying the request when it was filtered due to snippy. Note- if using finishedCb, requires supporting delta.retryReason, eg with clearToPreviousToolInvocation */
 	enableRetryOnFilter?: boolean;
 	/** Enable retrying the request when it failed. Defaults to enableRetryOnFilter. Note- if using finishedCb, requires supporting delta.retryReason, eg with clearToPreviousToolInvocation */
@@ -241,6 +245,10 @@ export type IChatRequestTelemetryProperties = {
 	connectivityTestError?: string;
 	connectivityTestErrorGitHubRequestId?: string;
 	retryAfterFilterCategory?: string;
+	/** Safe/max output token budget used for a length-limit auto-retry (e.g. `7372/8192`). */
+	retryAfterLengthLimit?: string;
+	/** Set when a request was retried after the API rejected image input. */
+	retryAfterImageReject?: string;
 	/** A subtype for categorizing the request with a messageSource- eg subagent */
 	subType?: string;
 	/** For a subagent: The request ID of the parent request that invoked this subagent. */

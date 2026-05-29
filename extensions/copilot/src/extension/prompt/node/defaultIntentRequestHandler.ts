@@ -20,6 +20,8 @@ import { IFileSystemService } from '../../../platform/filesystem/common/fileSyst
 import { IGitService } from '../../../platform/git/common/gitService';
 import { IOctoKitService } from '../../../platform/github/common/githubService';
 import { HAS_IGNORED_FILES_MESSAGE } from '../../../platform/ignore/common/ignoreService';
+import { buildImageIgnoredByApiNotice, isImageRejectedByApiFetchResult } from '../common/imageApiRetry';
+import { buildLengthLimitFailedNotice, isResponseTooLongErrorMessage } from '../common/lengthLimitRetry';
 import { ILogService } from '../../../platform/log/common/logService';
 import { isAnthropicContextEditingEnabled } from '../../../platform/networking/common/anthropic';
 import { FilterReason } from '../../../platform/networking/common/openai';
@@ -187,6 +189,11 @@ export class DefaultIntentRequestHandler {
 			this._logService.error(err);
 			this._telemetryService.sendGHTelemetryException(err, 'Error');
 			const errorMessage = (<Error>err).message;
+			if (isResponseTooLongErrorMessage(errorMessage)) {
+				this.stream.warning(buildLengthLimitFailedNotice());
+				this.turn.setResponse(TurnStatus.Error, undefined, undefined, {});
+				return {};
+			}
 			const chatResult = { errorDetails: { message: errorMessage } };
 			this.turn.setResponse(TurnStatus.Error, { message: errorMessage, type: 'meta' }, undefined, chatResult);
 			return chatResult;
@@ -492,6 +499,10 @@ export class DefaultIntentRequestHandler {
 	private async processResult(fetchResult: ChatResponse, responseMessage: string, chatResult: ChatResult | void, metadataFragment: Partial<IResultMetadata>, baseModelTelemetry: ConversationalBaseTelemetryData, rounds: IToolCallRound[]): Promise<ChatResult> {
 		switch (fetchResult.type) {
 			case ChatFetchResponseType.Success:
+				if (fetchResult.imageIgnoredByApi) {
+					this.turn.setResponse(TurnStatus.Success, undefined, baseModelTelemetry.properties.messageId, { metadata: metadataFragment });
+					return { metadata: metadataFragment };
+				}
 				return await this.processSuccessfulFetchResult(responseMessage, fetchResult.requestId, chatResult ?? {}, baseModelTelemetry, rounds);
 			case ChatFetchResponseType.OffTopic:
 				return this.processOffTopicFetchResult(baseModelTelemetry);
@@ -521,8 +532,18 @@ export class DefaultIntentRequestHandler {
 				return chatResult;
 			}
 			case ChatFetchResponseType.BadRequest:
-			case ChatFetchResponseType.NetworkError:
 			case ChatFetchResponseType.Failed: {
+				if (isImageRejectedByApiFetchResult(fetchResult)) {
+					this.stream.warning(buildImageIgnoredByApiNotice());
+					this.turn.setResponse(TurnStatus.Success, undefined, baseModelTelemetry.properties.messageId, { metadata: metadataFragment });
+					return { metadata: metadataFragment };
+				}
+				const errorDetails = await this.getErrorDetails(fetchResult);
+				const chatResult = { errorDetails, metadata: metadataFragment };
+				this.turn.setResponse(TurnStatus.Error, { message: errorDetails.message, type: 'server' }, baseModelTelemetry.properties.messageId, chatResult);
+				return chatResult;
+			}
+			case ChatFetchResponseType.NetworkError: {
 				const errorDetails = await this.getErrorDetails(fetchResult);
 				const chatResult = { errorDetails, metadata: metadataFragment };
 				this.turn.setResponse(TurnStatus.Error, { message: errorDetails.message, type: 'server' }, baseModelTelemetry.properties.messageId, chatResult);
@@ -552,10 +573,10 @@ export class DefaultIntentRequestHandler {
 				return chatResult;
 			}
 			case ChatFetchResponseType.Length: {
-				const errorDetails = await this.getErrorDetails(fetchResult);
-				const chatResult = { errorDetails, metadata: metadataFragment };
-				this.turn.setResponse(TurnStatus.Error, undefined, baseModelTelemetry.properties.messageId, chatResult);
-				return chatResult;
+				this._logService.info('[DefaultIntentRequestHandler] Output length limit after auto-retry');
+				this.stream.warning(buildLengthLimitFailedNotice());
+				this.turn.setResponse(TurnStatus.Error, undefined, baseModelTelemetry.properties.messageId, { metadata: metadataFragment });
+				return { metadata: metadataFragment };
 			}
 			case ChatFetchResponseType.NotFound: // before we had `NotFound`, it would fall into Unknown, so behavior should be consistent
 			case ChatFetchResponseType.Unknown: {
@@ -730,7 +751,9 @@ class DefaultToolCallingLoop extends ToolCallingLoop<IDefaultToolLoopOptions> {
 				iterationNumber: opts.iterationNumber.toString(),
 			},
 			interactionTypeOverride: this.options.request.subAgentInvocationId ? 'conversation-subagent' : undefined,
-			enableRetryOnFilter: true
+			enableRetryOnFilter: true,
+			enableRetryOnLength: true,
+			enableRetryOnImageReject: true,
 		}, token);
 	}
 

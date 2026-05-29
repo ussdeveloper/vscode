@@ -755,6 +755,16 @@
 	font-size: 18px;
 }
 
+/* TheCoder fork: dedicated settings section with golden title */
+.settings-editor > .settings-body .settings-tree-container .settings-group-title-label.thecoder-settings-section,
+.settings-editor > .settings-body .settings-toc-container .settings-toc-entry.thecoder-settings-section {
+	color: var(--vscode-settings-thecoderSectionForeground, #FFD700);
+}
+
+.settings-editor > .settings-body .settings-toc-container .monaco-list-row.selected .settings-toc-entry.thecoder-settings-section {
+	color: var(--vscode-settings-thecoderSectionForeground, #FFD700);
+}
+
 .settings-editor.search-mode > .settings-body .settings-toc-container .monaco-list-row .settings-toc-count {
 	display: block;
 }

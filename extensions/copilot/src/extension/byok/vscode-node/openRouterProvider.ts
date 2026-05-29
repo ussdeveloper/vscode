@@ -21,12 +21,57 @@ import { IBYOKStorageService } from './byokStorageService';
 interface OpenRouterModelData {
 	id: string;
 	name: string;
+	pricing?: OpenRouterPricing | OpenRouterPricingTier[];
 	supported_parameters?: string[];
 	architecture?: {
 		input_modalities?: string[];
 	};
 	top_provider: {
 		context_length: number;
+	};
+}
+
+interface OpenRouterPricingTier {
+	prompt?: string;
+	completion?: string;
+	input_cache_read?: string;
+	input_cache_write?: string;
+	min_context?: number;
+}
+
+interface OpenRouterPricing {
+	prompt?: string;
+	completion?: string;
+	input_cache_read?: string;
+	input_cache_write?: string;
+}
+
+function parsePricingValue(value: string | undefined): number | undefined {
+	if (!value) {
+		return undefined;
+	}
+	const parsed = Number(value);
+	return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/** OpenRouter `/models` quotes USD per token; TheCoder stores USD per 1M tokens. */
+const OPENROUTER_USD_PER_TOKEN_TO_PER_MILLION = 1_000_000;
+
+function resolveOpenRouterPricing(pricing: OpenRouterPricing | OpenRouterPricingTier[] | undefined): { input: number; output: number; cache?: number } | undefined {
+	if (!pricing) {
+		return undefined;
+	}
+	const tier = Array.isArray(pricing) ? pricing[0] : pricing;
+	const inputPerToken = parsePricingValue(tier.prompt);
+	const outputPerToken = parsePricingValue(tier.completion);
+	if (inputPerToken === undefined || outputPerToken === undefined) {
+		return undefined;
+	}
+	const cachePerToken = parsePricingValue(tier.input_cache_read);
+	return {
+		input: inputPerToken * OPENROUTER_USD_PER_TOKEN_TO_PER_MILLION,
+		output: outputPerToken * OPENROUTER_USD_PER_TOKEN_TO_PER_MILLION,
+		cache: cachePerToken !== undefined ? cachePerToken * OPENROUTER_USD_PER_TOKEN_TO_PER_MILLION : undefined,
 	};
 }
 
@@ -77,6 +122,7 @@ export class OpenRouterLMProvider extends AbstractOpenAICompatibleLMProvider {
 			name: openRouterModelData.name,
 			toolCalling: supportedParameters.includes('tools'),
 			vision: openRouterModelData.architecture?.input_modalities?.includes('image') ?? false,
+			pricing: resolveOpenRouterPricing(openRouterModelData.pricing),
 			maxInputTokens: openRouterModelData.top_provider.context_length - 16000,
 			maxOutputTokens: 16000,
 			supportsReasoningEffort

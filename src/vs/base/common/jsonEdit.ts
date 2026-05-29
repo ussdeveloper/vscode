@@ -4,6 +4,27 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { findNodeAtLocation, JSONPath, Node, ParseError, parseTree, Segment } from './json.js';
+
+/**
+ * User/workspace settings must be JSON objects. If the file was corrupted to an
+ * array (e.g. `[]`), writes like `chat.utilityModel` would throw because
+ * setProperty cannot add a property to an array root.
+ */
+function coerceSettingsObjectRoot(text: string): string {
+	const trimmed = text.trim();
+	if (!trimmed) {
+		return '{}';
+	}
+	const errors: ParseError[] = [];
+	const root = parseTree(trimmed, errors);
+	if (errors.length > 0) {
+		return text;
+	}
+	if (root?.type === 'array') {
+		return '{}';
+	}
+	return text;
+}
 import { Edit, format, FormattingOptions, isEOL } from './jsonFormatter.js';
 
 
@@ -12,6 +33,7 @@ export function removeProperty(text: string, path: JSONPath, formattingOptions: 
 }
 
 export function setProperty(text: string, originalPath: JSONPath, value: unknown, formattingOptions: FormattingOptions, getInsertionIndex?: (properties: string[]) => number): Edit[] {
+	text = coerceSettingsObjectRoot(text);
 	const path = originalPath.slice();
 	const errors: ParseError[] = [];
 	const root = parseTree(text, errors);

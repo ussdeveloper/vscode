@@ -6,6 +6,7 @@
 import { PromptFileContribution } from '../../agents/vscode-node/promptFileContrib';
 import { AuthenticationContrib } from '../../authentication/vscode-node/authentication.contribution';
 import { BYOKContrib } from '../../byok/vscode-node/byokContribution';
+import { MemoryTankContrib } from '../../memoryTank/vscode-node/memoryTankContribution';
 import { ChatDebugFileLoggerContribution } from '../../chat/vscode-node/chatDebugFileLoggerService';
 import { ChatQuotaContribution } from '../../chat/vscode-node/chatQuota.contribution';
 import { ChatSessionContextContribution } from '../../chatSessionContext/vscode-node/chatSessionContextProvider';
@@ -105,6 +106,7 @@ export const vscodeNodeContributions: IExtensionContributionFactory[] = [
 	asContributionFactory(SessionStoreTracker),
 	sessionSyncContribution,
 	asContributionFactory(BYOKContrib),
+	asContributionFactory(MemoryTankContrib),
 ];
 
 /**

@@ -190,7 +190,7 @@ export type ChatFetchRetriableError<T> =
 	{ type: ChatFetchResponseType.FilteredRetry; reason: string; category: FilterReason; value: T; requestId: string; serverRequestId: string | undefined };
 
 export type FetchSuccess<T> =
-	{ type: ChatFetchResponseType.Success; value: T; requestId: string; serverRequestId: string | undefined; usage: APIUsage | undefined; resolvedModel: string; modelCallId?: string };
+	{ type: ChatFetchResponseType.Success; value: T; requestId: string; serverRequestId: string | undefined; usage: APIUsage | undefined; resolvedModel: string; modelCallId?: string; /** TheCoder: empty success after API rejected images (warning shown in chat). */ imageIgnoredByApi?: boolean };
 
 export type FetchResponse<T> = FetchSuccess<T> | ChatFetchError;
 
@@ -449,7 +449,10 @@ function getErrorDetailsFromChatFetchErrorInner(fetchResult: ChatFetchError, cop
 			details = { message: fetchResult.reason };
 			break;
 		case ChatFetchResponseType.Length:
-			details = { message: l10n.t(`Sorry, the response hit the length limit. Please rephrase your prompt.`) };
+			details = {
+				message: l10n.t('Output length limit.'),
+				level: ChatErrorLevel.Warning,
+			};
 			break;
 		case ChatFetchResponseType.NotFound:
 			details = { message: l10n.t('Sorry, the resource was not found.') };

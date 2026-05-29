@@ -154,6 +154,108 @@
   "contributes": {
     "languageModelTools": [
       {
+        "name": "thecoder_memory_tank",
+        "toolReferenceName": "memoryTank",
+        "displayName": "Memory Tank (long-term project memory)",
+        "icon": "$(database)",
+        "userDescription": "TheCoder memory-tank: structured long-term project memory at `.thecoder/memory-tank/memory.json`. On workspace open it auto-profiles: overview, directory layout, tech stack, git timeline, CHANGELOG/releases milestones, AGENTS.md rules. After chat it extracts decisions/milestones/todos (not raw dumps). Use search at task start; save explicit project facts with category milestone|decision|architecture.",
+        "modelDescription": "Long-term memory store for THIS project. Use this BEFORE the chat is summarised/compacted to persist anything the user may need later: design decisions, architecture rationale, file roles, naming conventions, user preferences, partial progress, open questions, follow-ups. Use it again whenever you need to recall what was decided in earlier sessions -- prefer this over re-deriving from code. Actions:\n\n- action=\"save\" with `title` (short headline) and `content` (full note). Optional `category` (decision | architecture | progress | preference | fact | todo | other), `tags` (lowercase keywords), and `meta` (free-form map).\n- action=\"search\" with `query` and optional `category`/`tags`/`limit` returns BM25-ranked hits plus 1-hop graph neighbours.\n- action=\"list\" -- enumerate by category/tags, sorted by recency.\n- action=\"get\" with `id` -- full content of one entry.\n- action=\"delete\" with `id` -- forget an entry; dangling edges are cleaned automatically.\n- action=\"link\" with `from`, `to`, `relation` (e.g. \"refines\", \"replaces\", \"depends_on\") -- adds a directed edge in the memory graph.\n- action=\"stats\" -- counts per category, total entries, total edges.\n\nSave proactively: when the user makes a non-trivial decision, when you discover a project convention, when wrapping up a multi-step task. Search aggressively: at the start of every multi-step task and whenever the user asks \"what did we decide about X\" or \"continue where we left off\".",
+        "tags": [
+          "memory",
+          "knowledge",
+          "long-term"
+        ],
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "save",
+                "search",
+                "list",
+                "get",
+                "delete",
+                "link",
+                "stats"
+              ],
+              "description": "Which memory-tank operation to perform."
+            },
+            "id": {
+              "type": "string",
+              "description": "Entry id (required for get/delete; optional for save to update existing)."
+            },
+            "title": {
+              "type": "string",
+              "description": "Short headline for the memory (required when action=save)."
+            },
+            "content": {
+              "type": "string",
+              "description": "Body of the memory in Markdown (required when action=save)."
+            },
+            "category": {
+              "type": "string",
+              "enum": [
+                "decision",
+                "architecture",
+                "progress",
+                "preference",
+                "fact",
+                "todo",
+                "milestone",
+                "other"
+              ]
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Lowercase tags for filtering."
+            },
+            "query": {
+              "type": "string",
+              "description": "Free-form query string (required when action=search). Empty string returns most-recent."
+            },
+            "limit": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 50,
+              "description": "Maximum hits/entries to return."
+            },
+            "from": {
+              "type": "string",
+              "description": "Source entry id for action=link."
+            },
+            "to": {
+              "type": "string",
+              "description": "Target entry id for action=link."
+            },
+            "relation": {
+              "type": "string",
+              "description": "Edge label, e.g. \"refines\", \"depends_on\" (for action=link)."
+            },
+            "weight": {
+              "type": "number",
+              "description": "Optional 0..1 edge weight (for action=link)."
+            },
+            "meta": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Free-form metadata bundled with the entry."
+            },
+            "includeNeighbours": {
+              "type": "boolean",
+              "description": "If false, search hits won't include 1-hop neighbours (default true)."
+            }
+          },
+          "required": [
+            "action"
+          ]
+        }
+      },
+      {
         "name": "copilot_searchCodebase",
         "toolReferenceName": "codebase",
         "displayName": "%copilot.tools.searchCodebase.name%",
@@ -1824,6 +1926,24 @@
         }
       },
       {
+        "vendor": "deepseek",
+        "displayName": "DeepSeek",
+        "configuration": {
+          "type": "object",
+          "properties": {
+            "apiKey": {
+              "type": "string",
+              "secret": true,
+              "description": "API key for DeepSeek (https://platform.deepseek.com/api_keys)",
+              "title": "API Key"
+            }
+          },
+          "required": [
+            "apiKey"
+          ]
+        }
+      },
+      {
         "vendor": "ollama",
         "displayName": "Ollama",
         "configuration": {
@@ -2335,6 +2455,51 @@
       }
     ],
     "commands": [
+      {
+        "command": "thecoder.openModelManagement",
+        "title": "Manage Language Models...",
+        "category": "TheCoder"
+      },
+      {
+        "command": "thecoder.configureDeepSeekApiKey",
+        "title": "Enter DeepSeek API Key...",
+        "category": "TheCoder"
+      },
+      {
+        "command": "thecoder.resetSessionCost",
+        "title": "Reset Session Cost",
+        "category": "TheCoder"
+      },
+      {
+        "command": "thecoder.openSettings",
+        "title": "Open TheCoder Settings",
+        "category": "TheCoder"
+      },
+      {
+        "command": "thecoder.memoryTank.openDb",
+        "title": "Memory Tank: Open Database",
+        "category": "TheCoder"
+      },
+      {
+        "command": "thecoder.memoryTank.clear",
+        "title": "Memory Tank: Clear All Entries (this workspace)",
+        "category": "TheCoder"
+      },
+      {
+        "command": "thecoder.memoryTank.recordNow",
+        "title": "Memory Tank: Snapshot Conversation Now",
+        "category": "TheCoder"
+      },
+      {
+        "command": "thecoder.memoryTank.profileProject",
+        "title": "Memory Tank: Re-scan Project Profile",
+        "category": "TheCoder"
+      },
+      {
+        "command": "thecoder.memoryTank.export",
+        "title": "Memory Tank: Export Database",
+        "category": "TheCoder"
+      },
       {
         "command": "github.copilot.chat.triggerPermissiveSignIn",
         "title": "%github.copilot.command.triggerPermissiveSignIn%"
@@ -3117,6 +3282,117 @@
       }
     ],
     "configuration": [
+      {
+        "title": "TheCoder",
+        "id": "thecoder",
+        "order": 5,
+        "properties": {
+          "thecoder.pricing.show": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show per-million-token pricing next to each BYOK model in the model picker (input / output cost in the configured currency)."
+          },
+          "thecoder.pricing.currency": {
+            "type": "string",
+            "default": "USD",
+            "enum": [
+              "USD",
+              "EUR",
+              "PLN",
+              "GBP",
+              "JPY",
+              "CAD",
+              "AUD",
+              "CHF",
+              "CNY",
+              "INR",
+              "BRL",
+              "MXN",
+              "KRW",
+              "SGD",
+              "SEK",
+              "NOK",
+              "CZK",
+              "DKK",
+              "HUF",
+              "TRY",
+              "ZAR",
+              "NZD",
+              "HKD",
+              "TWD"
+            ],
+            "description": "Display currency for model pricing and session cost. USD amounts are converted using a free public FX feed (open.er-api.com) cached for 24h."
+          },
+          "thecoder.pricing.fxProviderUrl": {
+            "type": "string",
+            "default": "https://open.er-api.com/v6/latest/USD",
+            "description": "FX rates endpoint. Must return JSON with a `rates` object keyed by ISO currency code. The default is the free, no-key open.er-api.com feed."
+          },
+          "thecoder.pricing.fxRefreshHours": {
+            "type": "number",
+            "default": 24,
+            "minimum": 1,
+            "maximum": 720,
+            "description": "How long to cache FX rates (hours) before refreshing in the background."
+          },
+          "thecoder.pricing.customRates": {
+            "type": "object",
+            "default": {},
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "input": {
+                  "type": "number",
+                  "description": "USD per 1M input tokens."
+                },
+                "output": {
+                  "type": "number",
+                  "description": "USD per 1M output tokens."
+                },
+                "cache": {
+                  "type": "number",
+                  "description": "USD per 1M cached input tokens (optional)."
+                }
+              },
+              "required": [
+                "input",
+                "output"
+              ]
+            },
+            "markdownDescription": "User-defined model pricing in USD per 1M tokens. Keys may be the raw model id (e.g. `anthropic/claude-sonnet-4`) or the normalised id (e.g. `claude-sonnet-4`). Overrides the built-in table.\n\nExample:\n```json\n{\n  \"my-custom-model\": { \"input\": 0.5, \"output\": 1.5, \"cache\": 0.1 }\n}\n```"
+          },
+          "thecoder.hideCopilotModels": {
+            "type": "boolean",
+            "default": true,
+            "description": "Hide GitHub Copilot's hosted models (GPT, Claude, Gemini via Copilot subscription) from the model picker. Default is `true` in TheCoder because the fork is BYOK-first: users bring their own DeepSeek/OpenAI/Anthropic/Gemini keys instead of paying for a Copilot subscription. Set to `false` if you do hold a Copilot plan and want those models alongside your BYOK list."
+          },
+          "thecoder.firstRunOpenModelManager": {
+            "type": "boolean",
+            "default": true,
+            "description": "On first launch -- when no BYOK API keys are stored yet -- automatically open the Manage Language Models view so you can add a provider. Disable to suppress the auto-popup; the manager is still reachable from the model picker gear and `F1 -> TheCoder: Manage Language Models...`."
+          },
+          "thecoder.sessionCost.show": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show a running session cost indicator next to the chat input. Cost is computed from per-request usage * model pricing in the currency configured under `thecoder.pricing.currency`."
+          },
+          "thecoder.memoryTank.autoProfile": {
+            "type": "boolean",
+            "default": true,
+            "description": "On workspace open, scan the project and write structured entries: overview, directory tree, tech stack, git timeline, CHANGELOG/releases milestones, AGENTS.md."
+          },
+          "thecoder.memoryTank.autoExtract": {
+            "type": "boolean",
+            "default": true,
+            "description": "After idle chat periods, extract decisions/milestones/todos into memory-tank instead of only storing loose transcripts."
+          },
+          "thecoder.memoryTank.storeFullTranscripts": {
+            "type": "boolean",
+            "default": false,
+            "description": "Also store full conversation transcripts (verbose). Structured extracts are always saved when autoExtract is on."
+          }
+        }
+      },
       {
         "title": "GitHub Copilot Chat",
         "id": "stable",

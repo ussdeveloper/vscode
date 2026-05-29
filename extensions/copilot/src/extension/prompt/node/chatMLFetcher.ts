@@ -45,8 +45,16 @@ import { Disposable } from '../../../util/vs/base/common/lifecycle';
 import { escapeRegExpCharacters } from '../../../util/vs/base/common/strings';
 import { generateUuid } from '../../../util/vs/base/common/uuid';
 import { IInstantiationService } from '../../../util/vs/platform/instantiation/common/instantiation';
+import { extractLastUserTextFromMessages, getImageDescriptionService } from '../../byok/vscode-node/imageDescriptionService';
 import { isBYOKModel } from '../../byok/node/openAIEndpoint';
 import { EXTENSION_ID } from '../../common/constants';
+import {
+	emptySuccessAfterImageIgnored,
+	isImageRejectedByApiFetchResult,
+	messagesContainImages,
+	stripImagesFromMessages,
+} from '../common/imageApiRetry';
+import { buildLengthLimitRetryUserMessage, computeLengthLimitRetryBudget } from '../common/lengthLimitRetry';
 import { IPowerService } from '../../power/common/powerService';
 import { ChatMLFetcherTelemetrySender as Telemetry } from './chatMLFetcherTelemetry';
 
@@ -380,6 +388,52 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 						};
 					}
 
+					if (result.type === ChatFetchResponseType.Length) {
+						const enableRetryOnLength = opts.enableRetryOnLength ?? opts.enableRetryOnFilter;
+						if (enableRetryOnLength) {
+							const budget = computeLengthLimitRetryBudget(maxResponseTokens);
+							this._logService.info(`[ChatMLFetcher] Output length limit hit; retrying once with safe budget ${budget.safeOutputTokens}/${budget.maxOutputTokens} tokens`);
+							streamRecorder.callback('', 0, { text: '', retryReason: 'length_limit' });
+
+							const retryMessage = buildLengthLimitRetryUserMessage(budget, result.truncatedValue);
+							const augmentedMessages: Raw.ChatMessage[] = [
+								...messages,
+								{
+									role: Raw.ChatRole.User,
+									content: toTextParts(retryMessage)
+								}
+							];
+
+							const retryResult = await this.fetchMany({
+								...opts,
+								debugName: 'retry-length-' + debugName,
+								messages: augmentedMessages,
+								finishedCb,
+								location,
+								endpoint: chatEndpoint,
+								source,
+								requestOptions: {
+									...requestOptions,
+									max_tokens: budget.safeOutputTokens,
+								},
+								userInitiatedRequest: false,
+								telemetryProperties: {
+									...telemetryProperties,
+									retryAfterLengthLimit: `${budget.safeOutputTokens}/${budget.maxOutputTokens}`,
+								},
+								enableRetryOnLength: false,
+								enableRetryOnFilter: false,
+								canRetryOnceWithoutRollback: false,
+								enableRetryOnError,
+							}, token);
+
+							pendingLoggedChatRequest?.resolve(retryResult, streamRecorder.deltas);
+							if (retryResult.type === ChatFetchResponseType.Success) {
+								return retryResult;
+							}
+						}
+					}
+
 					pendingLoggedChatRequest?.resolve(result, streamRecorder.deltas);
 
 					// Record OTel token usage metrics if available
@@ -574,6 +628,20 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 							return retryResult;
 						}
 					}
+					const imageRetryResult = await this._retryAfterImageApiReject({
+						opts,
+						processed,
+						messages,
+						streamRecorder,
+						token,
+						debugName,
+						ourRequestId,
+						statusCode: actualStatusCode,
+						pendingLoggedChatRequest,
+					});
+					if (imageRetryResult) {
+						return imageRetryResult;
+					}
 					Telemetry.sendResponseErrorTelemetry(this._telemetryService, {
 						processed,
 						telemetryProperties,
@@ -705,9 +773,99 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 					resumeEventSeen,
 				});
 			}
+			const imageRetryResult = await this._retryAfterImageApiReject({
+				opts,
+				processed,
+				messages,
+				streamRecorder,
+				token,
+				debugName,
+				ourRequestId,
+				pendingLoggedChatRequest,
+			});
+			if (imageRetryResult) {
+				return imageRetryResult;
+			}
 			pendingLoggedChatRequest?.resolve(processed);
 			return processed;
 		}
+	}
+
+	/**
+	 * When the provider rejects image/vision input, retry once without images and surface
+	 * a chat warning instead of a user-visible error.
+	 */
+	private async _retryAfterImageApiReject(args: {
+		opts: IFetchMLOptions;
+		processed: ChatFetchError;
+		messages: Raw.ChatMessage[];
+		streamRecorder: FetchStreamRecorder;
+		token: CancellationToken;
+		debugName: string;
+		ourRequestId: string;
+		statusCode?: number;
+		pendingLoggedChatRequest?: ReturnType<IRequestLogger['logChatRequest']>;
+	}): Promise<ChatResponses | undefined> {
+		const { opts, processed, messages, streamRecorder, token, debugName, ourRequestId, statusCode, pendingLoggedChatRequest } = args;
+		const enableRetry = opts.enableRetryOnImageReject ?? true;
+		if (!enableRetry || !messagesContainImages(messages) || !isImageRejectedByApiFetchResult(processed, statusCode)) {
+			return undefined;
+		}
+
+		this._logService.info(`[ChatMLFetcher] API rejected image input for ${opts.endpoint.model}; retrying with image descriptions or without images`);
+
+		const descriptionService = getImageDescriptionService();
+		const userTaskContext = extractLastUserTextFromMessages(messages);
+		let retryMessages = stripImagesFromMessages(messages);
+		let retryReason: IResponseDelta['retryReason'] = 'image_ignored_by_api';
+		let imageDescriptionModel: string | undefined;
+
+		if (descriptionService?.isEnabled()) {
+			const replaced = await descriptionService.replaceImagesInMessages(messages, {
+				userTaskContext,
+				primaryModelName: opts.endpoint.model,
+			}, token);
+			if (replaced.describedCount > 0) {
+				retryMessages = replaced.messages;
+				retryReason = 'image_described_via_proxy';
+				imageDescriptionModel = replaced.descriptionModelLabel;
+				this._logService.info(`[ChatMLFetcher] Replaced ${replaced.describedCount} image(s) with descriptions via ${replaced.descriptionModelLabel ?? 'vision model'}`);
+			}
+		}
+
+		streamRecorder.callback('', 0, { text: '', retryReason, imageDescriptionModel });
+
+		const strippedMessages = retryMessages;
+		const retryResult = await this.fetchMany({
+			...opts,
+			debugName: 'retry-no-image-' + debugName,
+			messages: strippedMessages,
+			finishedCb: opts.finishedCb,
+			location: opts.location,
+			endpoint: opts.endpoint,
+			source: opts.source,
+			requestOptions: opts.requestOptions,
+			userInitiatedRequest: false,
+			telemetryProperties: {
+				...opts.telemetryProperties,
+				retryAfterImageReject: 'true',
+			},
+			enableRetryOnImageReject: false,
+			enableRetryOnLength: false,
+			enableRetryOnFilter: false,
+			canRetryOnceWithoutRollback: false,
+		}, token);
+
+		pendingLoggedChatRequest?.resolve(retryResult, streamRecorder.deltas);
+		if (retryResult.type === ChatFetchResponseType.Success) {
+			return retryResult;
+		}
+		if (isImageRejectedByApiFetchResult(retryResult, statusCode)) {
+			const graceful = emptySuccessAfterImageIgnored(ourRequestId, retryResult.serverRequestId ?? processed.serverRequestId, opts.endpoint.model);
+			pendingLoggedChatRequest?.resolve(graceful, streamRecorder.deltas);
+			return graceful;
+		}
+		return undefined;
 	}
 
 	private async _checkNetworkConnectivity(useFetcher?: FetcherId): Promise<{ retryRequest: boolean; connectivityTestError?: string; connectivityTestErrorGitHubRequestId?: string }> {

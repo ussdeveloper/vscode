@@ -415,31 +415,22 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 		// In async mode, signal the agent so it can drive send_to_terminal.
 		if (this._asyncMode) {
 			if (shouldFireInputNeeded) {
-				if (this._isSensitivePrompt(outputLastLine)) {
-					this._logService.trace('OutputMonitor: Async mode - sensitive input prompt detected, signaling sensitive UI');
-					this._onDidDetectSensitiveInputNeeded.fire();
-				} else {
-					this._logService.trace('OutputMonitor: Async mode - input-required pattern detected, signaling agent');
-					this._onDidDetectInputNeeded.fire();
-				}
+				// TheCoder: password/secret prompts use the same input-needed path as
+				// other interactive prompts so the agent can drive send_to_terminal.
+				this._logService.trace('OutputMonitor: Async mode - input-required pattern detected, signaling agent');
+				this._onDidDetectInputNeeded.fire();
 			}
 			this._cleanupIdleInputListener();
 			return { shouldContinuePolling: false, output };
 		}
 
-		// In foreground mode, fire the event so the race in runInTerminalTool can pick it
-		// up and return control to the agent (which uses send_to_terminal to provide input).
-		// For sensitive prompts (passwords, secrets, OTPs, …) we instead fire a separate
-		// event so the tool can show a confirmation dialog that focuses the terminal —
-		// the secret must never be routed through the model.
+		// In foreground mode, fire so runInTerminalTool can return control to the agent
+		// (send_to_terminal / askQuestions for passwords and other prompts).
 		if (shouldFireInputNeeded) {
-			if (this._isSensitivePrompt(outputLastLine)) {
-				this._logService.trace('OutputMonitor: Sensitive input prompt detected, signaling sensitive UI');
-				this._onDidDetectSensitiveInputNeeded.fire();
-			} else {
-				this._logService.trace('OutputMonitor: Input-required pattern detected, signaling agent');
-				this._onDidDetectInputNeeded.fire();
-			}
+			// TheCoder: password/secret prompts use the same input-needed path as
+			// other interactive prompts so the agent can drive send_to_terminal.
+			this._logService.trace('OutputMonitor: Input-required pattern detected, signaling agent');
+			this._onDidDetectInputNeeded.fire();
 			this._cleanupIdleInputListener();
 			return { shouldContinuePolling: false, output };
 		}

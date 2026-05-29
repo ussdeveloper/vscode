@@ -133,6 +133,8 @@ export class TOCRenderer implements ITreeRenderer<SettingsTreeGroupElement, neve
 		template.labelElement.textContent = label;
 		template.elementDisposables.add(this._hoverService.setupDelayedHover(template.labelElement, { content: label }));
 
+		template.labelElement.classList.toggle('thecoder-settings-section', isTheCoderSettingsGroup(element));
+
 		if (count) {
 			template.countElement.textContent = ` (${count})`;
 		} else {
@@ -264,4 +266,13 @@ export class TOCTree extends WorkbenchObjectTree<SettingsTreeGroupElement> {
 			treeInactiveIndentGuidesStroke: undefined
 		}));
 	}
+}
+
+function isTheCoderSettingsGroup(group: SettingsTreeGroupElement): boolean {
+	const id = group.id.toLowerCase();
+	const label = group.label.toLowerCase();
+	return id === 'thecoder'
+		|| id.endsWith('/thecoder')
+		|| id.endsWith('_thecoder')
+		|| label === 'thecoder';
 }

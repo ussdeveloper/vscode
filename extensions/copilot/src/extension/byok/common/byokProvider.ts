@@ -6,6 +6,7 @@ import type { Disposable, LanguageModelChatInformation, LanguageModelDataPart, L
 import { CopilotToken } from '../../../platform/authentication/common/copilotToken';
 import { EndpointEditToolName, IChatModelInformation, ModelSupportedEndpoint } from '../../../platform/endpoint/common/endpointProvider';
 import { TokenizerType } from '../../../util/common/tokenizer';
+import { decorateModelInfoWithPricing, rememberModelPricing } from './byokPricing';
 
 export const enum BYOKAuthType {
 	/**
@@ -51,6 +52,7 @@ export interface BYOKModelCapabilities {
 	maxOutputTokens: number;
 	toolCalling: boolean;
 	vision: boolean;
+	pricing?: BYOKModelPricing;
 	thinking?: boolean;
 	adaptiveThinking?: boolean;
 	streaming?: boolean;
@@ -66,6 +68,12 @@ export interface BYOKModelCapabilities {
 	 * If unset the format is inferred from whether the endpoint uses the Responses API.
 	 */
 	reasoningEffortFormat?: 'chat-completions' | 'responses';
+}
+
+export interface BYOKModelPricing {
+	readonly input: number;
+	readonly output: number;
+	readonly cache?: number;
 }
 
 export interface BYOKModelRegistry {
@@ -130,6 +138,12 @@ export function resolveModelInfo(modelId: string, providerName: string, knownMod
 		zeroDataRetentionEnabled: knownModelInfo?.zeroDataRetentionEnabled,
 		reasoningEffortFormat: knownModelInfo?.reasoningEffortFormat
 	};
+	if (knownModelInfo?.pricing) {
+		rememberModelPricing(providerName, modelId, knownModelInfo.pricing);
+		modelInfo.inputCost = knownModelInfo.pricing.input;
+		modelInfo.outputCost = knownModelInfo.pricing.output;
+		modelInfo.cacheCost = knownModelInfo.pricing.cache;
+	}
 	if (knownModelInfo?.requestHeaders && Object.keys(knownModelInfo.requestHeaders).length > 0) {
 		modelInfo.requestHeaders = { ...knownModelInfo.requestHeaders };
 	}
@@ -144,7 +158,8 @@ export function byokKnownModelsToAPIInfo(providerName: string, knownModels: BYOK
 }
 
 export function byokKnownModelToAPIInfo(providerName: string, id: string, capabilities: BYOKModelCapabilities): LanguageModelChatInformation {
-	return {
+	const baseTooltip = `${capabilities.name} is contributed via the ${providerName} provider.`;
+	const info: LanguageModelChatInformation = {
 		id,
 		name: capabilities.name,
 		version: '1.0.0',
@@ -156,7 +171,7 @@ export function byokKnownModelToAPIInfo(providerName: string, id: string, capabi
 		// vendor (e.g. multiple Ollama servers) are distinguishable in
 		// the model picker.
 		family: id,
-		tooltip: `${capabilities.name} is contributed via the ${providerName} provider.`,
+		tooltip: baseTooltip,
 		multiplierNumeric: undefined,
 		isUserSelectable: true,
 		capabilities: {
@@ -164,7 +179,31 @@ export function byokKnownModelToAPIInfo(providerName: string, id: string, capabi
 			imageInput: capabilities.vision,
 			editTools: capabilities.editTools,
 		},
+		inputCost: capabilities.pricing?.input,
+		outputCost: capabilities.pricing?.output,
+		cacheCost: capabilities.pricing?.cache,
 	};
+
+	// TheCoder: attach per-1M-token pricing in the user's selected currency.
+	// The decorator is a no-op until `setPricingDecoratorContext` has been
+	// called at extension activation, and when the user has disabled
+	// `thecoder.pricing.show`. We splice the produced fields onto the row;
+	// the `tooltip` field is replaced with the price-augmented one when
+	// present.
+	const priceFields = decorateModelInfoWithPricing(id, baseTooltip, providerName, capabilities.pricing);
+	if (priceFields) {
+		return {
+			...info,
+			detail: priceFields.pricing,
+			tooltip: priceFields.tooltip ?? info.tooltip,
+			pricing: priceFields.pricing,
+			inputCost: priceFields.inputCost,
+			outputCost: priceFields.outputCost,
+			cacheCost: priceFields.cacheCost,
+			priceCategory: priceFields.priceCategory,
+		} as LanguageModelChatInformation;
+	}
+	return info;
 }
 
 /**

@@ -45,8 +45,56 @@ import { disposableTimeout } from '../../../../../base/common/async.js';
 import { MarkdownString } from '../../../../../base/common/htmlContent.js';
 import { IsSessionsWindowContext, ResourceContextKey } from '../../../../common/contextkeys.js';
 import { Schemas } from '../../../../../base/common/network.js';
+import { INativeHostService } from '../../../../../platform/native/common/native.js';
 
 const CONTEXT_BROWSER_EDITOR_OPEN = new RawContextKey<boolean>('browserEditorOpen', false, localize('browser.editorOpen', "Whether any browser editor is currently open"));
+
+function shouldOpenHttpInIntegratedBrowser(configurationService: IConfigurationService, href: string): boolean {
+	const openAll = configurationService.getValue<boolean>('workbench.browser.openLinksInIntegratedBrowser');
+	const openLocalhost = configurationService.getValue<boolean>('workbench.browser.openLocalhostLinks');
+	if (!openAll && !openLocalhost) {
+		return false;
+	}
+
+	let parsed: URL;
+	try {
+		parsed = new URL(href);
+	} catch {
+		return false;
+	}
+
+	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+		return false;
+	}
+
+	if (openAll) {
+		return true;
+	}
+
+	return isLocalhostAuthority(parsed.host) || isAllInterfacesAuthority(parsed.host);
+}
+
+async function openHttpInIntegratedBrowser(
+	href: string,
+	configurationService: IConfigurationService,
+	editorService: IEditorService,
+	telemetryService: ITelemetryService,
+	telemetrySource: 'localhostLinkOpener' | 'integratedBrowserLinkOpener',
+): Promise<boolean> {
+	if (!shouldOpenHttpInIntegratedBrowser(configurationService, href)) {
+		return false;
+	}
+
+	logBrowserOpen(telemetryService, telemetrySource);
+
+	const openAll = configurationService.getValue<boolean>('workbench.browser.openLinksInIntegratedBrowser');
+	const settingKey = openAll ? 'workbench.browser.openLinksInIntegratedBrowser' : 'workbench.browser.openLocalhostLinks';
+	const isDefaultLinkOpen = !isConfigured(configurationService.inspect(settingKey));
+
+	const browserUri = BrowserViewUri.forId(generateUuid());
+	await editorService.openEditor({ resource: browserUri, options: { pinned: true, viewState: { url: href, isDefaultLinkOpen } } });
+	return true;
+}
 
 interface IBrowserQuickPickItem extends IQuickPickItem {
 	groupId: GroupIdentifier;
@@ -558,7 +606,7 @@ class BrowserEditorOpenContextKeyContribution extends Disposable implements IWor
 registerWorkbenchContribution2(BrowserEditorOpenContextKeyContribution.ID, BrowserEditorOpenContextKeyContribution, WorkbenchPhase.AfterRestored);
 
 /**
- * Opens localhost URLs and all-interfaces URLs in the Integrated Browser when the setting is enabled.
+ * Opens HTTP(S) links in the Integrated Browser when enabled via workbench settings.
  */
 class LocalhostLinkOpenerContribution extends Disposable implements IWorkbenchContribution, IExternalOpener {
 	static readonly ID = 'workbench.contrib.localhostLinkOpener';
@@ -575,35 +623,59 @@ class LocalhostLinkOpenerContribution extends Disposable implements IWorkbenchCo
 	}
 
 	async openExternal(href: string, _ctx: { sourceUri: URI; preferredOpenerId?: string }, _token: CancellationToken): Promise<boolean> {
-		if (!this.configurationService.getValue<boolean>('workbench.browser.openLocalhostLinks')) {
-			return false;
-		}
-
-		try {
-			const parsed = new URL(href);
-			if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-				return false;
-			}
-			if (!isLocalhostAuthority(parsed.host) && !isAllInterfacesAuthority(parsed.host)) {
-				return false;
-			}
-		} catch {
-			return false;
-		}
-
-		logBrowserOpen(this.telemetryService, 'localhostLinkOpener');
-
-		// Check whether the setting was explicitly set by the user or is still at its default value.
-		// When it is a default, tag the viewState so that the hint pill can be shown.
-		const isDefaultLinkOpen = !isConfigured(this.configurationService.inspect('workbench.browser.openLocalhostLinks'));
-
-		const browserUri = BrowserViewUri.forId(generateUuid());
-		await this.editorService.openEditor({ resource: browserUri, options: { pinned: true, viewState: { url: href, isDefaultLinkOpen } } });
-		return true;
+		const telemetrySource = this.configurationService.getValue<boolean>('workbench.browser.openLinksInIntegratedBrowser')
+			? 'integratedBrowserLinkOpener' as const
+			: 'localhostLinkOpener' as const;
+		return openHttpInIntegratedBrowser(href, this.configurationService, this.editorService, this.telemetryService, telemetrySource);
 	}
 }
 
 registerWorkbenchContribution2(LocalhostLinkOpenerContribution.ID, LocalhostLinkOpenerContribution, WorkbenchPhase.BlockStartup);
+
+/**
+ * Routes HTTP(S) external opens through the Integrated Browser even when callers omit `allowContributedOpeners`
+ * (for example `vscode.env.openExternal` from extensions).
+ */
+class IntegratedBrowserDefaultExternalOpenerContribution extends Disposable implements IWorkbenchContribution {
+	static readonly ID = 'workbench.contrib.integratedBrowserDefaultExternalOpener';
+
+	constructor(
+		@IOpenerService openerService: IOpenerService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IEditorService private readonly editorService: IEditorService,
+		@ITelemetryService private readonly telemetryService: ITelemetryService,
+		@INativeHostService private readonly nativeHostService: INativeHostService,
+	) {
+		super();
+
+		openerService.setDefaultExternalOpener({
+			openExternal: async (href: string) => {
+				const openedInBrowser = await openHttpInIntegratedBrowser(
+					href,
+					this.configurationService,
+					this.editorService,
+					this.telemetryService,
+					'integratedBrowserLinkOpener',
+				);
+				if (openedInBrowser) {
+					return true;
+				}
+
+				const success = await this.nativeHostService.openExternal(href, this.configurationService.getValue<string>('workbench.externalBrowser'));
+				if (!success) {
+					const fileCandidate = URI.parse(href);
+					if (fileCandidate.scheme === Schemas.file) {
+						await this.nativeHostService.showItemInFolder(fileCandidate.fsPath);
+					}
+				}
+
+				return true;
+			}
+		});
+	}
+}
+
+registerWorkbenchContribution2(IntegratedBrowserDefaultExternalOpenerContribution.ID, IntegratedBrowserDefaultExternalOpenerContribution, WorkbenchPhase.AfterRestored);
 
 // ---- Link opened hint pill (URL bar widget) --------------------------------
 
@@ -643,14 +715,14 @@ class LinkOpenedHintPill extends BrowserEditorContribution {
 		this._pill.appendChild(label);
 
 		const hoverOptions = () => ({
-			content: new MarkdownString(localize('browser.linkOpenedHint.detail', "**Integrated Browser**\n\nLocalhost links automatically open in the integrated browser.")),
+			content: new MarkdownString(localize('browser.linkOpenedHint.detail', "**Integrated Browser**\n\nHTTP and HTTPS links open here by default in TheCoder.")),
 			actions: [
 				{
 					label: localize('browser.linkOpenedHint.openSettings', "Open Settings"),
 					commandId: 'workbench.action.openSettings',
 					iconClass: ThemeIcon.asClassName(Codicon.settingsGear),
 					run: () => {
-						this.preferencesService.openUserSettings({ query: 'workbench.browser.openLocalhostLinks' });
+						this.preferencesService.openUserSettings({ query: 'workbench.browser.openLinksInIntegratedBrowser' });
 					}
 				},
 				{
@@ -744,13 +816,21 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 				'Controls whether the Integrated Browser button is shown in the title bar.'
 			)
 		},
+		'workbench.browser.openLinksInIntegratedBrowser': {
+			type: 'boolean',
+			default: true,
+			markdownDescription: localize(
+				{ comment: ['This is the description for a setting.'], key: 'browser.openLinksInIntegratedBrowser' },
+				'When enabled, HTTP and HTTPS links from the terminal, chat, extensions, and other sources open in the Integrated Browser instead of the system browser.'
+			),
+		},
 		'workbench.browser.openLocalhostLinks': {
 			type: 'boolean',
 			default: false,
 			experiment: { mode: 'startup' },
 			markdownDescription: localize(
 				{ comment: ['This is the description for a setting.'], key: 'browser.openLocalhostLinks' },
-				'When enabled, localhost links (`localhost`, `127.0.0.1`, `[::1]`) and all-interfaces links (`0.0.0.0`, `[0:0:0:0:0:0:0:0]`, `[::]`) from the terminal, chat, and other sources will open in the Integrated Browser instead of the system browser.'
+				'When **Open HTTP(S) links in Integrated Browser** is off, enabling this still opens localhost links (`localhost`, `127.0.0.1`, `[::1]`) and all-interfaces links (`0.0.0.0`, `[0:0:0:0:0:0:0:0]`, `[::]`) in the Integrated Browser.'
 			),
 			agentsWindow: { default: true },
 		}

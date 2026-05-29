@@ -19,6 +19,7 @@ import { URI } from '../../../../../../base/common/uri.js';
 import { ITerminalChatService, ITerminalInstance, ITerminalService } from '../../../../terminal/browser/terminal.js';
 import { getOutput } from '../outputHelpers.js';
 import { buildCommandDisplayText, isMultilineCommand, normalizeCommandForExecution } from '../runInTerminalHelpers.js';
+import { detectsSensitiveInputPrompt, getLastLine } from './monitoring/outputMonitor.js';
 import { RunInTerminalTool } from './runInTerminalTool.js';
 import { isSessionAutoApproveLevel } from './terminalToolAutoApprove.js';
 import { TerminalToolId } from './toolIds.js';
@@ -115,9 +116,14 @@ export class SendToTerminalTool extends Disposable implements IToolImpl {
 		// Look for the question that prompted this send_to_terminal call
 		const questionText = this._getQuestionContextForTerminal(context.chatSessionResource, args);
 
+		const isPasswordSend = !isEmptyInput && this._isPasswordTerminalSend(args);
+
 		if (isEmptyInput) {
 			invocationMessage.appendMarkdown(localize('send.progressive.enter', "Pressing `Enter` in terminal"));
 			pastTenseMessage.appendMarkdown(localize('send.past.enter', "Pressed `Enter` in terminal"));
+		} else if (isPasswordSend) {
+			invocationMessage.appendMarkdown(localize('send.progressive.password', "Sending password to terminal"));
+			pastTenseMessage.appendMarkdown(localize('send.past.password', "Password sent to terminal"));
 		} else {
 			const displayCommand = buildCommandDisplayText(args.command);
 			const safeInlineCode = appendEscapedMarkdownInlineCode(displayCommand);
@@ -358,6 +364,7 @@ export class SendToTerminalTool extends Disposable implements IToolImpl {
 
 		// Register a marker before sending so we can scope output to just the response
 		const startMarker = execution.instance.registerMarker?.();
+		const isPasswordSend = this._isPasswordTerminalSend(args);
 
 		if (isMultilineCommand(args.command)) {
 			// Multiline commands (e.g. heredocs) must preserve newlines and use
@@ -385,10 +392,14 @@ export class SendToTerminalTool extends Disposable implements IToolImpl {
 			? `\n\nNote: The input you sent was a cancel signal (Ctrl-C / Ctrl-D / Ctrl-\\). The previously running command was interrupted, not completed. This is not a signal to end the turn — if you intend to run a recovery or follow-up command, issue it now in this same turn. Call ${TerminalToolId.GetTerminalOutput} first if you need to verify the shell is back at a prompt.`
 			: '';
 
+		const passwordNote = isPasswordSend
+			? `\n\n${localize('send.result.passwordNote', 'Password was sent to the terminal. The value is not shown in chat or repeated here.')}`
+			: '';
+
 		return {
 			content: [{
 				kind: 'text',
-				value: `Successfully sent command to terminal ${args.id}.${recentOutput ? `\n\nTerminal output:\n${recentOutput}` : ''}${steering}`
+				value: `Successfully sent command to terminal ${args.id}.${passwordNote}${recentOutput ? `\n\nTerminal output:\n${recentOutput}` : ''}${steering}`
 			}]
 		};
 	}

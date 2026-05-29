@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { CopilotToken } from '../../../../platform/authentication/common/copilotToken';
+import { getModelPricingUSD, rememberModelPricing } from '../byokPricing';
 import { byokKnownModelToAPIInfo, BYOKModelCapabilities, isClientBYOKAllowed, resolveModelInfo } from '../byokProvider';
 
 describe('byokKnownModelToAPIInfo', () => {
@@ -43,6 +44,21 @@ describe('byokKnownModelToAPIInfo', () => {
 
 		expect(info.capabilities.editTools).toBeUndefined();
 	});
+
+	it('preserves explicit pricing instead of falling back to builtin pricing', () => {
+		const info = byokKnownModelToAPIInfo('OpenRouter', 'deepseek-v4-flash', {
+			...baseCapabilities,
+			pricing: {
+				input: 0.01,
+				output: 0.02,
+				cache: 0.003,
+			},
+		});
+
+		expect(info.inputCost).toBe(0.01);
+		expect(info.outputCost).toBe(0.02);
+		expect(info.cacheCost).toBe(0.003);
+	});
 });
 
 describe('resolveModelInfo', () => {
@@ -70,6 +86,21 @@ describe('resolveModelInfo', () => {
 
 		expect(info.capabilities.supports.reasoning_effort).toBeUndefined();
 		expect(info.reasoningEffortFormat).toBeUndefined();
+	});
+
+	it('prefers provider-scoped pricing over generic pricing', () => {
+		rememberModelPricing('OpenRouter', 'deepseek-v4-flash', {
+			input: 0.01,
+			output: 0.02,
+			cache: 0.003,
+		});
+
+		const pricing = getModelPricingUSD('deepseek-v4-flash', undefined, 'OpenRouter');
+		expect(pricing).toEqual({
+			input: 0.01,
+			output: 0.02,
+			cache: 0.003,
+		});
 	});
 });
 
