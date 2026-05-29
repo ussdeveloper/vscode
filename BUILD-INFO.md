@@ -1,135 +1,188 @@
-# TheCoder — budowanie wersji portable (Windows)
+# TheCoder — instrukcja buildu (Windows) dla agenta / nowej maszyny
 
-Ten dokument opisuje **krok po kroku**, jak z tego forka (`ussdeveloper/vscode`) zbudować **rozpakowaną wersję portable** TheCoder na Windows.  
-Oficjalny skrypt: [`scripts/build-release.ps1`](scripts/build-release.ps1). Krótszy opis katalogów: [`releases/README.md`](releases/README.md).
+Ten dokument jest **źródłem prawdy** dla każdego, kto po sklonowaniu forka z GitHuba ma zbudować **portable TheCoder** na czystym Windowsie.  
+Skierowany do **agenta AI** i człowieka — krok po kroku, z wersjami narzędzi, weryfikacją i znanymi pułapkami.
 
----
-
-## Co dostajesz na końcu
-
-Po udanym buildzie **najnowsza** portable leży zawsze tutaj (ścieżka **bez numeru wersji** w nazwie folderu):
-
-```text
-<repo>\releases\portable\portable\
-├── thecoder.exe              ← uruchamiasz to
-├── data\                     ← marker trybu portable (ustawienia, rozszerzenia, cache)
-│   ├── user-data\
-│   └── extensions\
-├── resources\app\            ← workbench + wbudowane rozszerzenia (w tym copilot)
-├── locales\, tools\, ...
-└── PORTABLE_README.txt
-```
-
-Poprzedni build (jeśli był) jest automatycznie archiwizowany jako zip obok:
-
-```text
-<repo>\releases\portable\TheCoder-portable-x64-<stara-wersja>__YYYY-MM-DD_HH-mm-ss.zip
-```
-
-Surowy wynik kompilacji gulp (przed skopiowaniem do `releases/`) ląduje **jeden poziom wyżej niż repo**:
-
-```text
-<parent-of-repo>\VSCode-win32-x64\
-├── thecoder.exe
-└── ... (pełna aplikacja Electron, ~600 MB)
-```
-
-Przykład: repo `C:\Users\sulaco\Desktop\vscode-local` → build output `C:\Users\sulaco\Desktop\VSCode-win32-x64\`.
+**Repo:** `https://github.com/ussdeveloper/vscode.git` (fork; **nie** pushować do `microsoft/vscode`).  
+**Branch z pełnym TheCoder:** `the-coder-dev` (lub inny wskazany przez użytkownika).  
+**Skrypt release:** [`scripts/build-release.ps1`](scripts/build-release.ps1).
 
 ---
 
-## Wymagania (przed pierwszym buildem)
+## Szybka checklista (agent — wykonaj po kolei)
 
-### System
+```powershell
+# 0. Wymagania: Windows 10/11 x64, ~6 GB dysku, 16 GB RAM zalecane, VS 2022 + SDK, Git
 
-| Wymaganie | Szczegóły |
-|-----------|-----------|
-| **OS** | Windows 10/11 (x64). Build x64 na maszynie x64. `arm64` tylko jeśli budujesz na Windows ARM. |
-| **Dysk** | ~**6 GB** wolnego (build tymczasowy + portable ~1,3 GB + ewentualne zipy archiwum). |
-| **RAM** | 8 GB minimum, **16 GB** zalecane przy pełnym `min` build. |
-| **Czas** | Pierwszy pełny build: zwykle **20–50 minut** (zależy od CPU i dysku). |
+# 1. Klon (przykład)
+git clone https://github.com/ussdeveloper/vscode.git C:\work\vscode-local
+cd C:\work\vscode-local
+git fetch origin the-coder-dev
+git checkout the-coder-dev
 
-### Oprogramowanie
+# 2. Node z .nvmrc (OBOWIĄZKOWE przy npm install)
+#    Odczytaj wersję:  Get-Content .nvmrc
+nvm install 24.15.0
+nvm use 24.15.0
+node -v    # v24.15.0 lub nowszy patch, major 24
+npm -v     # musi być < 12 (np. 10.x)
 
-1. **PowerShell 7+** (`pwsh`) — skrypt release jest napisany pod PowerShell, nie Windows PowerShell 5.1.
-   - Instalacja: [PowerShell](https://github.com/PowerShell/PowerShell/releases)
+# 3. Zamknij wszystkie thecoder.exe
+Get-Process thecoder -ErrorAction SilentlyContinue | Stop-Process -Force
 
-2. **Node.js 22.22.1** (zgodnie z [`.nvmrc`](.nvmrc)):
-   ```powershell
-   # Przykład z nvm-windows:
-   nvm install 22.22.1
-   nvm use 22.22.1
-   node -v   # powinno pokazać v22.22.1
-   ```
+# 4. Zależności (pierwszy raz: 15–45 min)
+npm install
 
-3. **Git** — do `git rev-parse` (etykieta wersji `1.122.0+a1b2c3d`).
+# 5. Pełny portable (20–50 min kompilacji + staging)
+pwsh -File scripts/build-release.ps1 -PortableOnly
+# Jeśli brak pwsh: powershell -NoProfile -File scripts/build-release.ps1 -PortableOnly
 
-4. **Visual Studio 2022** (Community wystarczy) z komponentami do natywnych modułów Node:
-   - **Desktop development with C++**
-   - **MSVC v143** (lub aktualny toolset x64/x86)
-   - **Windows 10/11 SDK**
-   - **Spectre-mitigated libs** — bez tego `node-gyp` często pada na `msvs_version` / linkowaniu. W repo jest pomocniczy skrypt:
-     ```cmd
-     .tmp-install-spectre.cmd
-     ```
-     (modyfikuje VS 2022 Community — ścieżkę dostosuj w pliku, jeśli masz inną edycję/ścieżkę).
+# 6. Uruchom wynik
+& .\releases\portable\portable\thecoder.exe
+```
 
-5. **Windows 10 SDK — `signtool.exe`** na `PATH` (lub w standardowej lokalizacji):
-   - `C:\Program Files (x86)\Windows Kits\10\bin\10.0.*\x64\signtool.exe`
-   - Skrypt `build-release.ps1` **sam dopina** najnowszy SDK do `PATH`, jeśli `signtool` nie jest widoczny. Bez SDK build często pada na końcu przy `patchWin32DependenciesTask`.
-
-6. **Inno Setup** — tylko jeśli budujesz **instalatory** (nie jest potrzebny do samego portable). W projekcie jest zależność npm `innosetup`; gulp uruchamia kompilator z `node_modules`.
-
-7. **Python 3** — czasem wymagany przez `node-gyp` (jeśli `postinstall` tego wymaga).
-
-### Tożsamość produktu (fork)
-
-Nazwy i foldery danych są w [`product.json`](product.json), m.in.:
-
-- `nameShort`: `thecoder` → plik `thecoder.exe`
-- `dataFolderName`: `.thecoder`
-- `win32DirName`: `TheCoder`
-
-Ikony Windows: `resources\win32\code.ico` (oraz powiązane PNG w `resources\win32\`).  
-Jeśli zmieniasz branding, zaktualizuj te pliki **przed** pełnym buildem gulp.
+Po buildzie **zrestartuj** `thecoder.exe` — stary proces nie przeładuje `extension.js` z copilot.
 
 ---
 
-## Jednorazowa przygotowanie repozytorium
+## Co jest w repozytorium, a czego nie ma
 
-Wszystkie kroki wykonuj w **korzeniu repo** (tam gdzie jest `package.json`).
+| W git | Poza git (budujesz lokalnie) |
+|-------|------------------------------|
+| Źródła, `scripts/build-release.ps1`, `product.json`, branding | `releases/portable/portable/` (~1,3 GB) |
+| `releases/portable/.gitkeep`, `releases/README.md` | `releases/portable/*.zip` (archiwum) |
+| `node_modules/` po `npm install` | `<parent-repo>\VSCode-win32-x64\` (~600 MB) |
 
-### 1. Zamknij działające TheCoder
+`.gitignore` ignoruje m.in. `releases/portable/portable/`, zipy, `.build-portable-log.txt`, `.thecoder/`.
 
-Uruchomiony `thecoder.exe` (dev, portable lub z instalatora) **blokuje pliki** w `extensions\copilot` i w `releases\portable\portable\data\` — build wtedy kończy się `EPERM`.
+---
+
+## Wymagania środowiska (szczegółowo)
+
+### System operacyjny
+
+| Parametr | Wartość |
+|----------|---------|
+| OS | **Windows 10/11**, edycja x64 |
+| Architektura buildu | Domyślnie **x64** (`-Arch x64`). `-Arch arm64` tylko na Windows ARM |
+| Dysk wolny | **≥ 6 GB** (repo + `node_modules` + `..\VSCode-win32-x64` + portable + ewentualne zipy) |
+| RAM | **8 GB** minimum, **16 GB** zalecane przy pełnym `vscode-win32-x64-min` |
+| Czas (pierwszy raz) | **20–50 min** sam krok gulp `min`; `npm install` dodatkowo **15–45 min** |
+
+### Wersje narzędzi (sprawdź w repo, nie z pamięci)
+
+| Narzędzie | Wymagana wersja | Jak sprawdzić |
+|-----------|-----------------|---------------|
+| **Node.js** | **`v24.15.0`** lub nowszy **patch** z **major 24** — patrz [`.nvmrc`](.nvmrc) | `node -v` |
+| **npm** | **&lt; 12.0.0** (np. 10.x dołączony do Node 24) | `npm -v` — `preinstall` odrzuca npm ≥ 12 |
+| **Git** | dowolna aktualna | `git --version` — etykieta buildu `1.122.0+<short-sha>` |
+| **PowerShell** | **7+ (`pwsh`) zalecane**; działa też **Windows PowerShell 5.1** jeśli skrypt nie ma znaków Unicode poza ASCII | `pwsh -v` lub `$PSVersionTable` |
+
+`scripts/build-release.ps1` ustawia `VSCODE_SKIP_NODE_VERSION_CHECK=1` na czas gulp — **nie** pomija to wymagań przy `npm install` w korzeniu repo.
+
+### Visual Studio 2022 (obowiązkowe do `npm install` / native modules)
+
+Zainstaluj **Visual Studio 2022** (Community wystarczy) z:
+
+- **Desktop development with C++**
+- **MSVC v143** (lub aktualny toolset x64/x86 build tools)
+- **Windows 10/11 SDK** (dowolna nowsza 10.0.x)
+- **MSVC v143 - VS 2022 C++ x64/x86 Spectre-mitigated libs** — bez tego `node-gyp` często kończy się **MSB8040** / błędem Spectre
+
+Pomocniczy skrypt w repo (dostosuj ścieżkę VS w pliku, jeśli nie masz Community):
+
+```cmd
+.tmp-install-spectre.cmd
+```
+
+Log: `.tmp-install-spectre.log`.
+
+### Windows SDK — `signtool.exe`
+
+Potrzebny na **końcu** pakowania (`patchWin32DependenciesTask`). Typowa ścieżka:
+
+```text
+C:\Program Files (x86)\Windows Kits\10\bin\10.0.<wersja>\x64\signtool.exe
+```
+
+`build-release.ps1` na starcie **sam dopina** najnowszy SDK do `PATH`, jeśli `signtool` nie jest widoczny. Bez SDK build pada z **ENOENT** przy `signtool`.
+
+### Opcjonalne / warunkowe
+
+| Narzędzie | Kiedy potrzebne |
+|-----------|-----------------|
+| **Python 3** | Czasem wymagany przez `node-gyp` (jeśli `postinstall` tego żąda) |
+| **Inno Setup** | Tylko przy buildzie **instalatorów** (bez `-PortableOnly`) — gulp używa `innosetup` z `node_modules` |
+| **7-Zip** | Nie do portable; opcjonalnie do ręcznego rozpakowania archiwów |
+
+### Czego **nie** instalować na ścieżce portable
+
+- Nie trzeba osobnego Node na maszynie docelowej **użytkownika** portable — Electron ma własny runtime.
+- Nie mieszaj ze starym `Code.exe` / inną kopią VS Code — uruchamiaj wyłącznie `releases\portable\portable\thecoder.exe`.
+
+---
+
+## Przygotowanie repozytorium (nowa maszyna)
+
+### 1. Klon i branch
+
+```powershell
+git clone https://github.com/ussdeveloper/vscode.git <ścieżka-repo>
+cd <ścieżka-repo>
+git checkout the-coder-dev
+git pull origin the-coder-dev
+```
+
+**Bezpieczeństwo forków:** `git push` tylko na `origin` (`ussdeveloper/vscode`). Remote `upstream` (microsoft) ma zablokowany push.
+
+### 2. Node i npm
+
+```powershell
+cd <ścieżka-repo>
+Get-Content .nvmrc          # np. 24.15.0
+nvm install (Get-Content .nvmrc).Trim()
+nvm use (Get-Content .nvmrc).Trim()
+node -v
+npm -v                    # musi być 10.x lub 11.x, NIE 12+
+```
+
+### 3. Zamknij TheCoder przed install/build
+
+Uruchomiony `thecoder.exe` trzyma locki na:
+
+- `extensions\copilot\...\runtime.node`
+- `releases\portable\portable\data\user-data\state.vscdb`
+
+Skutek: **`EPERM` / `EBUSY`** w `postinstall` lub przy usuwaniu starego portable.
 
 ```powershell
 Get-Process thecoder -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Seconds 4
+Get-Process thecoder -ErrorAction SilentlyContinue | Stop-Process -Force
 ```
 
-Skrypt release robi to sam na starcie, ale lepiej zamknąć ręcznie wcześniej.
+`build-release.ps1` robi to sam na starcie — i tak lepiej zamknąć wcześniej.
 
-### 2. Zainstaluj zależności npm (root)
+### 4. `npm install` (korzeń repo)
 
 ```powershell
-cd C:\Users\sulaco\Desktop\vscode-local   # ← twoja ścieżka repo
-
-# Pierwszy raz / po zmianie package-lock:
+cd <ścieżka-repo>
 npm install
 ```
 
-To uruchamia `preinstall` + `postinstall` (m.in. natywne moduły, rozszerzenia). **Może trwać długo** i wymaga działającego VS + Spectre libs.
+- Pierwszy raz: długo; wymaga VS + Spectre.
+- Przy błędzie w połowie: napraw środowisko, potem `npm install` ponownie (ew. `node build/npm/fast-install.ts --force` jeśli stan postinstall jest uszkodzony — patrz komunikat w logu).
 
-### 3. (Zalecane) Zbuduj rozszerzenie Copilot w drzewie
-
-TheCoder-specific logika (BYOK, ceny, balance, vision) jest w `extensions/copilot/`. Pełny gulp wbuduje copilot w paczkę, ale **po każdej zmianie tylko w copilot** szybciej zsynchronizować portable skryptem sync (patrz niżej).
+### 5. (Zalecane przed pierwszym pełnym buildem) Copilot w drzewie
 
 ```powershell
 cd extensions\copilot
-npm install    # pierwszy raz w tym podkatalogu
+npm install
 npm run build
 cd ..\..
 ```
+
+Pełny gulp i tak buduje copilot; osobny build przyspiesza debug i sync.
 
 ---
 
@@ -137,82 +190,92 @@ cd ..\..
 
 ### Komenda
 
-Z korzenia repo, w **PowerShell 7**:
+Z **korzenia repo**:
 
 ```powershell
-cd C:\Users\sulaco\Desktop\vscode-local
-
-pwsh -File scripts/build-release.ps1 -PortableOnly
+pwsh -NoProfile -File scripts/build-release.ps1 -PortableOnly
 ```
 
-`-PortableOnly` = to samo co `-SkipInstaller` — **pomija instalatory Inno**, robi tylko build aplikacji + staging portable (+ sync copilot).
+`-PortableOnly` = pomija instalatory Inno, robi: min build → staging portable → sync copilot.
 
-Bez flag (installer + portable):
+**Bez `pwsh` na maszynie:**
 
 ```powershell
-pwsh -File scripts/build-release.ps1
+powershell -NoProfile -File scripts/build-release.ps1 -PortableOnly
 ```
 
-### Co robi skrypt (kolejność)
+Skrypt musi być zapisany w **UTF-8 bez BOM** i używać **ASCII** w stringach PowerShell (patrz sekcja problemów — znaki typu `—` psują parser w PS 5.1).
 
-| Krok | Gulp / akcja | Wynik |
-|------|----------------|-------|
-| **0** | Zabija procesy `thecoder` | Zwolnienie locków |
-| **0** | `Ensure-SigntoolOnPath` | SDK na PATH |
-| **1** | `npm run gulp -- vscode-win32-x64-min` | `..\VSCode-win32-x64\` z `thecoder.exe` |
-| **2** | `vscode-win32-x64-inno-updater` | `tools\inno_updater.exe`, `vcruntime140.dll` w paczce |
-| **3** | (pominięty przy `-PortableOnly`) | Instalatory w `releases\install\` |
-| **4a** | Archiwizacja starego `releases\portable\portable\` → zip | `TheCoder-portable-x64-...__timestamp.zip` |
-| **4b** | `robocopy` z `VSCode-win32-x64` → `releases\portable\portable\` | Świeży portable |
-| **4c** | Tworzy puste `data\`, `data\user-data\`, `data\extensions\` | Włączenie trybu portable |
-| **4d** | `PORTABLE_README.txt` | Opis dla użytkownika |
-| **4e** | `scripts\sync-copilot-to-portable.ps1` | Najnowszy `extensions/copilot` → `resources\app\extensions\copilot\` |
+### Kolejność kroków skryptu
 
-Ustawiane jest też `VSCODE_SKIP_NODE_VERSION_CHECK=1` (tsx/gulp).
+| Krok | Akcja | Wynik |
+|------|--------|--------|
+| 0 | `Stop-TheCoderProcesses` | Zwolnienie locków |
+| 0 | `Ensure-SigntoolOnPath` | SDK na PATH |
+| 1 | `npm run gulp -- vscode-win32-x64-min` | Katalog **obok repo**: `<parent>\VSCode-win32-x64\` |
+| 2 | `vscode-win32-x64-inno-updater` | `tools\inno_updater.exe`, `vcruntime140.dll` w paczce |
+| 3 | (pominięty przy `-PortableOnly`) | Instalatory w `releases\install\<wersja>\` |
+| 4a | Zip starego `releases\portable\portable\` | `TheCoder-portable-x64-<stara>__YYYY-MM-DD_HH-mm-ss.zip` |
+| 4b | `robocopy` → `releases\portable\portable\` | Świeży portable + `data\` |
+| 4c | `PORTABLE_README.txt`, `checksums.txt` | Metadane |
+| 4d | `scripts\sync-copilot-to-portable.ps1` | Najnowszy `extensions/copilot` → `resources\app\extensions\copilot\` |
 
-### Uruchomienie gotowej wersji
+### Gdzie jest wynik
+
+```text
+<repo>\releases\portable\portable\
+├── thecoder.exe              ← uruchom to
+├── data\                     ← marker trybu portable
+│   ├── user-data\
+│   └── extensions\
+├── resources\app\
+└── PORTABLE_README.txt
+```
+
+Surowy output gulp (przed kopiowaniem):
+
+```text
+<parent-of-repo>\VSCode-win32-x64\
+```
+
+Przykład: repo `D:\dev\vscode-local` → build `D:\dev\VSCode-win32-x64\`.
+
+Etykieta wersji w logu: `<package.json version>+<git short sha>`, np. `1.122.0+5717babe2d3`.
+
+### Log buildu (opcjonalnie)
 
 ```powershell
-& "C:\Users\sulaco\Desktop\vscode-local\releases\portable\portable\thecoder.exe"
+powershell -NoProfile -File scripts/build-release.ps1 -PortableOnly *>&1 `
+  | Tee-Object -FilePath .build-portable-log.txt -Append
 ```
 
-Albo dwuklik w Explorerze na `thecoder.exe` w tym folderze.
-
-**Ważne:** Po syncie copilot **zrestartuj** TheCoder — stary proces nie przeładuje `extension.js`.
+Plik logu jest w `.gitignore`.
 
 ---
 
-## Szybsze ścieżki (gdy pełny build już był)
+## Szybsze ścieżki (po pierwszym udanym buildzie)
 
-### A) Tylko zmiany w `extensions/copilot` (bez 30+ min gulp)
+### A) Tylko zmiany w `extensions/copilot`
 
-Wymaga **istniejącego** `releases\portable\portable\`:
+Wymaga istniejącego `releases\portable\portable\`:
 
 ```powershell
-cd C:\Users\sulaco\Desktop\vscode-local
 pwsh -File scripts/sync-copilot-to-portable.ps1
 ```
 
-Skrypt:
+Skrypt: `npm run build` w copilot → kopiuje `package.json` + `dist\` → weryfikuje m.in. `configureDeepSeekApiKey` w `extension.js` i brak `DeepSeekBalanceProvider`.
 
-1. `npm run build` w `extensions\copilot`
-2. Kopiuje `package.json` + `dist\` do  
-   `releases\portable\portable\resources\app\extensions\copilot\`
-3. Weryfikuje m.in. `thecoder.balance.apiKey` i `configureDeepSeekApiKey` w zbudowanych plikach
+### B) Przepakowanie bez rekompilacji workbencha
 
-Potem uruchom ponownie `thecoder.exe` z `releases\portable\portable\`.
-
-### B) Przepakowanie portable z ostatniego `VSCode-win32-x64` (bez rekompilacji)
-
-Gdy katalog `..\VSCode-win32-x64\` jest już aktualny:
+Gdy `<parent>\VSCode-win32-x64\` jest aktualny:
 
 ```powershell
 pwsh -File scripts/build-release.ps1 -SkipBuild -PortableOnly
 ```
 
-To **nie** przebuduje TypeScript/workbencha — tylko skopiuje istniejący output do `releases\portable\portable\` i uruchomi sync copilot.
+**Nie** przebuduje `src/` — tylko skopiuje istniejący output i zsyncuje copilot.
 
-### C) Tylko instalatory (bez portable)
+### C) Tylko instalatory
 
 ```powershell
 pwsh -File scripts/build-release.ps1 -SkipPortable
@@ -220,68 +283,102 @@ pwsh -File scripts/build-release.ps1 -SkipPortable
 
 ---
 
-## Zmiany w workbench (`src/`) — kiedy potrzebny pełny build
+## Co wymaga pełnego buildu vs sync
 
 | Zmienione | Wystarczy |
 |-----------|-----------|
 | `extensions/copilot/**` | `sync-copilot-to-portable.ps1` (po pierwszym pełnym buildzie) |
-| `src/**`, `product.json`, branding, inne `extensions/*` | Pełny `build-release.ps1` (bez `-SkipBuild`) |
-| Ustawienia workbench / contributions w `src/vs/workbench/**` | Pełny build |
+| `src/**`, `product.json`, branding, inne `extensions/*` | Pełny `build-release.ps1` **bez** `-SkipBuild` |
+| `scripts/build-release.ps1` | Pełny build (staging) |
 
 ---
 
-## Tryb portable — jak to działa
+## Weryfikacja po buildzie (agent)
 
-Jeśli obok `thecoder.exe` istnieje folder **`data\`**, TheCoder **nie** zapisuje profilu w `%APPDATA%`, tylko w:
-
-```text
-releases\portable\portable\data\
-├── user-data\     ← settings, state.vscdb, cache
-└── extensions\    ← rozszerzenia użytkownika
-```
-
-Możesz skopiować cały katalog `portable\` na pendrive / inny PC.  
-**Uwaga:** klucze API BYOK na Windows są szyfrowane DPAPI **per maszyna** — po przeniesieniu na inny komputer klucze mogą być nie do odczytania (fork pokazuje wtedy monit o ponowne wpisanie klucza).
-
----
-
-## Weryfikacja po buildzie
-
-1. **Rozmiar** — unpacked portable ~**1,0–1,5 GB** (zależnie od wersji).
-2. **Plik** — `releases\portable\portable\thecoder.exe` istnieje.
-3. **Copilot / TheCoder** — po syncie w konsoli skryptu:
-   - `package.json has thecoder.balance.apiKey : True`
-   - `extension.js has configureDeepSeekApiKey : True`
-4. **Wersja** — w aplikacji: Help → About, lub:
+1. **Plik istnieje:** `releases\portable\portable\thecoder.exe`
+2. **Rozmiar unpacked:** ~1,0–1,5 GB
+3. **Wersja:**
    ```powershell
    (Get-Content releases\portable\portable\resources\app\package.json | ConvertFrom-Json).version
+   git rev-parse --short HEAD
    ```
-5. **Archiwum** — przy drugim buildzie w `releases\portable\` pojawia się zip poprzedniej wersji + `checksums.txt` (SHA-256 zipów).
+4. **Sync copilot** — w logu syncu:
+   - `extension.js has configureDeepSeekApiKey : True`
+   - `extension.js has no DeepSeekBalanceProvider : True`
+5. **Workbench (terminal sensitive input)** — w paczce nie powinno być starych stringów:
+   ```powershell
+   Select-String -Path releases\portable\portable\resources\app\out\**\*.js `
+     -Pattern "registerSensitive|SensitiveInputElicitation" -SimpleMatch
+   ```
+   Oczekiwane: **0 trafień** na branchu `the-coder-dev`.
+6. **Nie uruchamiaj starego exe** z poprzedniego portable ani z `VSCode-win32-x64` — tylko `releases\portable\portable\thecoder.exe`.
 
 ---
 
-## Typowe błędy i rozwiązania
+## Znane problemy i rozwiązania (doświadczenie z buildów forka)
 
-| Objaw | Przyczyna | Co zrobić |
-|-------|-----------|-----------|
-| `EPERM` / `EBUSY` przy `postinstall` lub czyszczeniu copilot | Działa `thecoder.exe` | Zamknij wszystkie instancje; uruchom build ponownie |
-| `node-gyp` / Spectre / MSB8040 | Brak Spectre libs w VS | Uruchom `.tmp-install-spectre.cmd` lub doinstaluj komponent w Visual Studio Installer |
-| `signtool` / ENOENT na końcu pakowania | Brak Windows SDK | Zainstaluj Windows 10/11 SDK; sprawdź log pre-flight w `build-release.ps1` |
-| `Expected thecoder.exe inside VSCode-win32-x64` | Krok 1 nie zakończony lub `-SkipBuild` bez folderu | Usuń `-SkipBuild` lub dokończ `npm run gulp -- vscode-win32-x64-min` |
-| `sync-copilot-to-portable failed` | Brak `releases\portable\portable` | Najpierw pełny build bez `-SkipBuild` |
-| Stare funkcje TheCoder w UI | Stary `dist` w portable | `sync-copilot-to-portable.ps1` + restart exe |
-| Build trwa „w nieskończoność” | Normalne przy pierwszym `min` | Czekaj; monitoruj CPU/dysk; nie przerywaj w połowie `postinstall` |
+### Blokady plików / EPERM / EBUSY
 
-Logi gulp: terminal, w którym uruchomiłeś `build-release.ps1`.  
-Dodatkowo możesz ręcznie sprawdzić krok 1:
+| Objaw | Przyczyna | Rozwiązanie |
+|-------|-----------|-------------|
+| `EPERM` przy `postinstall`, czyszczeniu copilot | Działa `thecoder.exe` (dev/portable/instalator) | `Stop-Process`; odczekaj 4 s; powtórz |
+| `Could not remove ...\releases\portable\portable` | Ten sam proces + otwarty `state.vscdb` | Zamknij TheCoder; zamknij Explorer w tym folderze |
+| `Compress-Archive` / WARN przy archiwizacji | `runtime.node` lub inne pliki zablokowane | WARN jest nieblokujący — staging idzie dalej; przy pełnym fail zamknij procesy |
 
-```powershell
-npm run gulp -- vscode-win32-x64-min
-```
+### Visual Studio / node-gyp
+
+| Objaw | Rozwiązanie |
+|-------|-------------|
+| MSB8040 / Spectre | Doinstaluj Spectre-mitigated libs lub `.tmp-install-spectre.cmd` |
+| `node-gyp` nie znajduje VS | Uruchom **x64 Native Tools Command Prompt for VS 2022** i stamtąd `npm install`, albo upewnij się, że `vswhere` widzi instalację |
+
+### SDK / signtool
+
+| Objaw | Rozwiązanie |
+|-------|-------------|
+| ENOENT `signtool` na końcu `package-win32-x64` | Zainstaluj Windows 10/11 SDK; sprawdź log pre-flight w build-release |
+| WARNING pre-flight o braku SDK | Build **prawdopodobnie** padnie na kroku 1 — doinstaluj SDK przed startem |
+
+### PowerShell / skrypt release
+
+| Objaw | Przyczyna | Rozwiązanie |
+|-------|-----------|-------------|
+| `Unexpected token 'close'` w `build-release.ps1` | Znak **em dash** `—` lub **BOM UTF-8** w pliku `.ps1` pod **Windows PowerShell 5.1** | Użyj aktualnego skryptu z repo (`the-coder-dev`); uruchamiaj przez `pwsh` 7+; stringi w skrypcie muszą być ASCII (`-` zamiast `—`) |
+| `$stageSizeMB MB` parser error | W PS 5.1 `$var MB` w cudzysłowie `"..."` jest błędnie parsowane | Naprawione w repo przez konkatenację stringów — `git pull` |
+
+### npm / Node
+
+| Objaw | Rozwiązanie |
+|-------|-------------|
+| `Please use Node.js v24.15.0...` przy `npm install` | `nvm use` zgodnie z `.nvmrc` |
+| `Please use npm version < 12` | `npm i -g npm@10` lub użyj npm dołączonego do Node 24 |
+| Build gulp działa na „złym” Node | Ustaw Node 24 przed `npm install`; gulp i tak ma skip check, ale **postinstall** musi przejść na właściwym Node |
+
+### „Stary” TheCoder mimo świeżego buildu
+
+| Objaw | Przyczyna | Rozwiązanie |
+|-------|-----------|-------------|
+| Dialog „Terminal is waiting for sensitive input” | Uruchomiono **starą** kopię portable / stary `VSCode-win32-x64` | Tylko `releases\portable\portable\thecoder.exe`; sprawdź `LastWriteTime` exe |
+| Stare funkcje BYOK / balance | Stary `dist` w copilot bez sync | `sync-copilot-to-portable.ps1` + **restart** exe |
+| Ostrzeżenie corrupt install | Stary build bez `skipIntegrityCheck` w `product.json` | Pełny rebuild z aktualnego brancha |
+
+### Portable / ustawienia (runtime, nie build)
+
+| Objaw | Uwaga |
+|-------|--------|
+| `Can not add index to parent of type array` przy utility models | `settings.json` miał root `[]` zamiast `{}` — naprawione w kodzie (`coerceSettingsObjectRoot`); po przeniesieniu profilu sprawdź `data\user-data\User\settings.json` |
+| Klucze API BYOK po przeniesieniu na inny PC | Windows DPAPI — klucze mogą wymagać ponownego wpisania |
+
+### Czas / zasoby
+
+| Objaw | Uwaga |
+|-------|--------|
+| Krok 1 „wisi” 30+ min | Normalne przy pierwszym `min` — nie przerywaj w połowie `postinstall` ani gulp |
+| OOM / Node heap | Gulp ustawia `--max-old-space-size=8192`; zamknij inne aplikacje zjadające RAM |
 
 ---
 
-## Parametry `build-release.ps1` (pełna lista)
+## Parametry `build-release.ps1`
 
 ```powershell
 pwsh -File scripts/build-release.ps1 [-Arch x64|arm64] [-SkipBuild] [-SkipInstaller] [-SkipPortable] [-PortableOnly]
@@ -289,55 +386,44 @@ pwsh -File scripts/build-release.ps1 [-Arch x64|arm64] [-SkipBuild] [-SkipInstal
 
 | Parametr | Znaczenie |
 |----------|-----------|
-| `-Arch x64` | Domyślnie x64. `arm64` tylko na Windows ARM. |
-| `-SkipBuild` | Pomija gulp `vscode-win32-*-min` — wymaga gotowego `..\VSCode-win32-<arch>\`. |
-| `-SkipInstaller` | Bez Inno Setup (system + user). |
-| `-SkipPortable` | Bez katalogu `releases\portable\portable\`. |
-| `-PortableOnly` | `-SkipInstaller` + portable (najczęstszy wariant dla USB). |
+| `-Arch x64` | Domyślnie x64 |
+| `-SkipBuild` | Pomija gulp min — wymaga gotowego `<parent>\VSCode-win32-<arch>\` |
+| `-SkipInstaller` | Bez Inno Setup |
+| `-SkipPortable` | Bez `releases/portable/portable/` |
+| `-PortableOnly` | Instalatory wyłączone, tylko portable |
 
 ---
 
-## Podpis kodu (opcjonalnie)
+## Tożsamość produktu (fork)
 
-Domyślnie build **nie** jest podpisywany (`--sign` nie jest używany). Portable i instalatory są artefaktami deweloperskimi. Podpis wymaga infrastruktury Microsoft / certyfikatu — poza zakresem tego dokumentu.
+[`product.json`](product.json):
 
----
+- `nameShort`: `thecoder` → `thecoder.exe`
+- `dataFolderName`: `.thecoder`
+- `win32DirName`: `TheCoder`
+- `skipIntegrityCheck`: `true` (portable dev bez oficjalnego podpisu)
 
-## Git a artefakty
-
-W [`.gitignore`](.gitignore) ignorowane są m.in.:
-
-- `releases/portable/portable/`
-- `releases/portable/*.zip`
-- `releases/install/*/`
-
-Do repo trafiają tylko szkielety katalogów i [`releases/README.md`](releases/README.md). **Portable budujesz lokalnie**, nie z git clone.
+Ikony: `resources\win32\code.ico` (+ PNG w `resources\win32\`). Branding dodatkowy: `.branding\`.
 
 ---
 
-## Skrócona checklista (copy-paste)
+## Tryb portable
 
-```powershell
-# 1. Środowisko
-nvm use 22.22.1
-cd C:\Users\sulaco\Desktop\vscode-local
+Folder `data\` obok `thecoder.exe` przełącza profil z `%APPDATA%` na:
 
-# 2. Zamknij TheCoder
-Get-Process thecoder -ErrorAction SilentlyContinue | Stop-Process -Force
-
-# 3. Zależności (rzadko — po pull z lockfile)
-npm install
-
-# 4. PEŁNY portable (długo, ~20–50 min)
-pwsh -File scripts/build-release.ps1 -PortableOnly
-
-# 5. Uruchom
-& .\releases\portable\portable\thecoder.exe
-
-# --- Później: tylko zmiany w extensions/copilot ---
-pwsh -File scripts/sync-copilot-to-portable.ps1
-# Restart thecoder.exe
+```text
+data\user-data\     ← settings, state.vscdb
+data\extensions\    ← rozszerzenia użytkownika
 ```
+
+Cały katalog `portable\` można przenosić (USB, inny PC). Patrz też [`.cursor/extra-docs/`](.cursor/extra-docs/) dla zachowania TheCoder (BYOK, terminal, vision).
+
+---
+
+## Git i artefakty
+
+- **Nie commituj** zbudowanego portable ani `.7z` — są ignorowane.
+- **Push** tylko na `origin` (`ussdeveloper/vscode`), nigdy na `upstream` (Microsoft).
 
 ---
 
@@ -345,10 +431,27 @@ pwsh -File scripts/sync-copilot-to-portable.ps1
 
 | Plik | Rola |
 |------|------|
-| [`scripts/build-release.ps1`](scripts/build-release.ps1) | Główny pipeline release |
-| [`scripts/sync-copilot-to-portable.ps1`](scripts/sync-copilot-to-portable.ps1) | Szybki deploy copilot → portable |
-| [`releases/README.md`](releases/README.md) | Layout katalogów i rozmiary |
-| [`product.json`](product.json) | Nazwa `thecoder`, foldery danych |
-| [`.cursor/extra-docs/`](.cursor/extra-docs/) | Notatki o zachowaniu TheCoder (ceny, vision, itd.) |
+| [`scripts/build-release.ps1`](scripts/build-release.ps1) | Główny pipeline |
+| [`scripts/sync-copilot-to-portable.ps1`](scripts/sync-copilot-to-portable.ps1) | Szybki deploy copilot |
+| [`releases/README.md`](releases/README.md) | Layout katalogów |
+| [`.nvmrc`](.nvmrc) | Wymagana wersja Node |
+| [`product.json`](product.json) | Nazwy, portable, gallery Open VSX |
+| [`.cursor/extra-docs/`](.cursor/extra-docs/) | Notatki behawioralne TheCoder |
 
-Upstream (ogólny build VS Code): [How to Contribute — Build](https://github.com/microsoft/vscode/wiki/How-to-Contribute).
+Upstream (ogólny VS Code): [How to Contribute — Build](https://github.com/microsoft/vscode/wiki/How-to-Contribute).
+
+---
+
+## Szablon raportu dla agenta (po buildzie)
+
+Wklej użytkownikowi:
+
+```text
+Branch: <nazwa> @ <short-sha>
+Node: <node -v>  npm: <npm -v>
+Build: OK / FAIL (krok: ...)
+Portable: <abs-path>\releases\portable\portable\thecoder.exe
+Exe modified: <LastWriteTime>
+Sync copilot: configureDeepSeekApiKey=<T/F>  no DeepSeekBalanceProvider=<T/F>
+Sensitive strings in bundle: <count> (oczekiwane 0)
+```
